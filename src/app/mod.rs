@@ -12,7 +12,7 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::theme::ActiveTheme as _;
 use gpui_kit::component::{
-    Disableable as _, Icon, Root, Sizable as _, TitleBar, h_flex, h_resizable, resizable_panel,
+    Disableable as _, Icon, Sizable as _, TitleBar, h_flex, h_resizable, resizable_panel,
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -1456,8 +1456,6 @@ impl Render for GitApp {
             .child(self.render_title_bar(cx))
             .child(div().flex_1().min_h_0().child(body))
             .child(self.render_status_bar(cx))
-            .children(Root::render_dialog_layer(window, cx))
-            .children(Root::render_notification_layer(window, cx))
     }
 }
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use gpui_kit::assets::AllAssets;
-use gpui_kit::component::{Root, TitleBar};
+use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
 mod app;
@@ -157,7 +157,9 @@ fn open_window(cx: &mut App, path: Option<PathBuf>) {
         })
         .filter(|b| cx.displays().iter().any(|d| d.bounds().intersects(b)))
         .unwrap_or_else(|| Bounds::centered(None, size(px(1320.), px(840.)), cx));
-    let result = cx.open_window(
+    // The kit wraps the content in its Root, which hosts dialogs and
+    // notifications.
+    let result = gpui_kit::open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(900.), px(560.))),
@@ -170,6 +172,7 @@ fn open_window(cx: &mut App, path: Option<PathBuf>) {
             },
             ..TitleBar::window_options()
         },
+        cx,
         |window, cx| {
             let view = cx.new(|cx| app::GitApp::new(window, cx));
             let start = path.or_else(|| recent::load().into_iter().next());
@@ -186,7 +189,7 @@ fn open_window(cx: &mut App, path: Option<PathBuf>) {
                 })
                 .detach();
             view.read(cx).focus_handle().focus(window, cx);
-            cx.new(|cx| Root::new(view, window, cx))
+            view
         },
     );
     if let Err(e) = result {
