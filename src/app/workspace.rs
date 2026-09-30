@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use gpui_kit::component::menu::ContextMenuExt as _;
+
 use super::*;
 use crate::{CloseTab, NextTab, PrevTab};
 
@@ -236,6 +238,16 @@ impl Workspace {
         }
     }
 
+    /// Close all tabs but tab `ix`.
+    fn close_others(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.tabs.len() {
+            return;
+        }
+        self.tabs.truncate(ix + 1);
+        self.tabs.drain(..ix);
+        self.activate(0, window, cx);
+    }
+
     fn tab_of(&self, root: &Path) -> Option<usize> {
         self.tabs.iter().position(|t| t.repo.root == root)
     }
@@ -391,6 +403,7 @@ impl Workspace {
             strip: Default::default(),
         };
         let this = cx.entity();
+        let (menu_ws, menu_root, alone) = (this.clone(), root.clone(), self.tabs.len() < 2);
         tab_frame(active, cx)
             .id(("tab", ix))
             .group("tab")
@@ -447,6 +460,34 @@ impl Workspace {
                     strip,
                     ..drag.clone()
                 })
+            })
+            .context_menu(move |menu, _, _| {
+                // The menu finds its tab when an item is chosen: the tabs
+                // can move while it is open.
+                let (ws, root) = (menu_ws.clone(), menu_root.clone());
+                let (ws2, root2, dir) = (ws.clone(), root.clone(), root.clone());
+                menu.item(PopupMenuItem::new("Close Tab").on_click(move |_, window, cx| {
+                    ws.update(cx, |ws, cx| {
+                        if let Some(ix) = ws.tab_of(&root) {
+                            ws.close(ix, window, cx)
+                        }
+                    })
+                }))
+                .item(
+                    PopupMenuItem::new("Close Other Tabs")
+                        .disabled(alone)
+                        .on_click(move |_, window, cx| {
+                            ws2.update(cx, |ws, cx| {
+                                if let Some(ix) = ws.tab_of(&root2) {
+                                    ws.close_others(ix, window, cx)
+                                }
+                            })
+                        }),
+                )
+                .separator()
+                .item(PopupMenuItem::new("Open in Finder").on_click(move |_, _, _| {
+                    let _ = std::process::Command::new("open").arg(&dir).spawn();
+                }))
             })
             .into_any_element()
     }
