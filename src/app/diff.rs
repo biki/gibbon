@@ -10,7 +10,9 @@ use crate::highlight::DiffStyles;
 
 use super::*;
 
-/// Diff text size and row height, from the settings.
+/// Diff text size and row height, from the settings. `uniform_list` gives
+/// every row the height of its first row, so every row must use this height:
+/// a shorter row leaves a gap below it.
 fn metrics(cx: &App) -> (f32, f32) {
     let size = crate::settings::get(cx).code_size;
     (size, (size * 1.6).round())
@@ -276,9 +278,11 @@ impl GitApp {
         let line = &file.lines[i];
         let staged = ctx == DiffCtx::Staged;
         let (_, line_h) = metrics(cx);
+        // Buttons fit inside the row: xsmall is 20px, rows can be 18px.
+        let button_h = px(line_h - 2.);
         h_flex()
             .id(("hunk", i))
-            .h(px(line_h + 6.))
+            .h(px(line_h))
             .w_full()
             .pl(px(106.))
             .pr_2()
@@ -295,6 +299,7 @@ impl GitApp {
                             .font_family(crate::theme::ui_font(cx))
                             .ghost()
                             .xsmall()
+                            .h(button_h)
                             .label("Discard")
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 if let Some(f) = this.change_diff.clone() {
@@ -308,6 +313,7 @@ impl GitApp {
                         .font_family(crate::theme::ui_font(cx))
                         .ghost()
                         .xsmall()
+                        .h(button_h)
                         .label(if staged { "Unstage hunk" } else { "Stage hunk" })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(f) = this.change_diff.clone() {
