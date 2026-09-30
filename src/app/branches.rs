@@ -160,6 +160,35 @@ impl GitApp {
         );
     }
 
+    /// Confirm, then delete the branch on its remote.
+    pub(super) fn delete_remote_branch_dialog(
+        &mut self,
+        branch: Branch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Branch { name, refname, .. } = branch;
+        self.confirm(
+            "Delete remote branch?",
+            format!(
+                "This deletes {name} on the remote, for everyone who uses it. \
+                 Local branches stay."
+            ),
+            "Delete",
+            move |this, cx| {
+                let refname = refname.clone();
+                this.run_op(
+                    "Deleting…",
+                    Some(format!("Deleted {name}")),
+                    move |repo| git::delete_remote_branch(repo, &refname).map(|_| String::new()),
+                    cx,
+                )
+            },
+            window,
+            cx,
+        );
+    }
+
     fn delete_branch(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.clone() else {
             return;

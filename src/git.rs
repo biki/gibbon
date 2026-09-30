@@ -1293,6 +1293,36 @@ pub fn delete_branch(repo: &Repo, name: &str, force: bool) -> Result<()> {
         .map(|_| ())
 }
 
+/// The remote and the branch name on it for a remote-tracking ref such as
+/// `refs/remotes/origin/feature/x`. Remote names can contain slashes, so the
+/// longest remote that matches wins.
+pub fn remote_branch(repo: &Repo, refname: &str) -> Result<(String, String)> {
+    let rest = refname
+        .strip_prefix("refs/remotes/")
+        .ok_or_else(|| anyhow!("{refname} is not a remote branch."))?;
+    repo.git(&["remote"])?
+        .lines()
+        .filter_map(|r| Some((r, rest.strip_prefix(r)?.strip_prefix('/')?)))
+        .max_by_key(|(r, _)| r.len())
+        .map(|(r, b)| (r.to_string(), b.to_string()))
+        .ok_or_else(|| anyhow!("No remote of this repository has {rest}."))
+}
+
+/// Delete a branch on its remote, and its remote-tracking ref. When the
+/// remote has no such branch any more, delete only the stale ref.
+pub fn delete_remote_branch(repo: &Repo, refname: &str) -> Result<()> {
+    let (remote, branch) = remote_branch(repo, refname)?;
+    // The full name, so a tag with the same name cannot make it ambiguous.
+    let spec = format!("refs/heads/{branch}");
+    match repo.git(&["push", remote.as_str(), "--delete", spec.as_str()]) {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_string().contains("remote ref does not exist") => {
+            repo.git(&["update-ref", "-d", refname]).map(|_| ())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Remote names with their fetch URLs.
 pub fn remotes(repo: &Repo) -> Result<Vec<(String, String)>> {
     let out = repo.git(&["remote", "-v"])?;
@@ -1575,6 +1605,39 @@ mod tests {
         assert!(err.contains("not fully merged"), "{err}");
         delete_branch(r, "topic2", true).unwrap();
         assert!(branches(r).unwrap().iter().all(|b| b.name != "topic2"));
+    }
+
+    #[test]
+    fn delete_remote_branches() {
+        let origin = temp_repo("remote-origin");
+        let t = temp_repo("remote-clone");
+        let r = &t.0;
+        commit_file(r, "a.txt", "base", "base");
+        let url = origin.0.root.to_string_lossy().into_owned();
+        r.git(&["remote", "add", "origin", url.as_str()]).unwrap();
+        r.git(&["push", "-q", "origin", "main:feature/x", "main:gone"]).unwrap();
+        r.git(&["fetch", "-q", "origin"]).unwrap();
+        let remote_names = |r: &Repo| -> Vec<String> {
+            branches(r)
+                .unwrap()
+                .into_iter()
+                .filter(|b| b.kind == RefKind::Remote)
+                .map(|b| b.name)
+                .collect()
+        };
+        assert_eq!(
+            remote_branch(r, "refs/remotes/origin/feature/x").unwrap(),
+            ("origin".into(), "feature/x".into())
+        );
+
+        delete_remote_branch(r, "refs/remotes/origin/feature/x").unwrap();
+        assert!(origin.0.git(&["rev-parse", "-q", "--verify", "refs/heads/feature/x"]).is_err());
+        assert_eq!(remote_names(r), ["origin/gone"]);
+
+        // Someone else deleted it already: only the stale ref goes.
+        origin.0.git(&["branch", "-D", "gone"]).unwrap();
+        delete_remote_branch(r, "refs/remotes/origin/gone").unwrap();
+        assert!(remote_names(r).is_empty());
     }
 
     #[test]

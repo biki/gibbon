@@ -430,6 +430,17 @@ impl GitApp {
                                     }),
                             );
                         }
+                        if menu_branch.kind == RefKind::Remote {
+                            let (this4, del) = (this.clone(), menu_branch.clone());
+                            menu = menu.item(PopupMenuItem::new("Delete…").on_click(
+                                move |_, window, cx| {
+                                    let b = del.clone();
+                                    this4.update(cx, |app, cx| {
+                                        app.delete_remote_branch_dialog(b, window, cx)
+                                    });
+                                },
+                            ));
+                        }
                         menu.separator().item(PopupMenuItem::new("Copy Name").on_click(
                             move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
