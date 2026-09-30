@@ -25,9 +25,101 @@ enum Row {
     Pr(usize),
     /// Index into `worktrees`.
     Worktree(usize),
+    /// Opens a short branch section (the number of branches it hides) or
+    /// makes an open one short again (None).
+    Fold {
+        key: &'static str,
+        hidden: Option<usize>,
+    },
 }
 
 const ROW_H: f32 = 28.;
+
+/// Branches that a branch section always shows, first, in this order. The
+/// base branch comes before them.
+const FIXED: [&str; 8] = [
+    "main",
+    "master",
+    "trunk",
+    "develop",
+    "dev",
+    "development",
+    "staging",
+    "production",
+];
+/// The most recent other branches that a short section shows.
+const RECENT: usize = 5;
+/// A section with fewer hidden branches than this shows all: a row that
+/// shows one more branch is as long as that branch.
+const MIN_HIDDEN: usize = 2;
+
+/// Whether a section shows all its branches, or which row changes that.
+#[derive(Debug, PartialEq, Eq)]
+enum Fold {
+    /// Nothing to hide.
+    None,
+    /// Short: this many branches are hidden.
+    More(usize),
+    /// Open, and it can be short again.
+    Less,
+}
+
+/// The place of a branch among the fixed ones, if it is one: the base
+/// branch first, then the order of `FIXED`. A remote branch counts by its
+/// name on the remote.
+fn fixed_rank(b: &Branch, base: Option<&str>) -> Option<usize> {
+    if Some(b.refname.as_str()) == base {
+        return Some(0);
+    }
+    let name = match b.kind {
+        RefKind::Remote => b.name.split_once('/').map_or(b.name.as_str(), |(_, n)| n),
+        _ => b.name.as_str(),
+    };
+    FIXED.iter().position(|f| *f == name).map(|p| p + 1)
+}
+
+/// The branches of a section, from `matches` (newest first): the fixed
+/// ones first, then the others. A short section shows the `RECENT` newest
+/// others and the checked-out branch; `all` shows every branch.
+fn section_branches(
+    branches: &[Branch],
+    matches: &[usize],
+    base: Option<&str>,
+    all: bool,
+) -> (Vec<usize>, Fold) {
+    let mut fixed = vec![];
+    let mut rest = vec![];
+    for &i in matches {
+        match fixed_rank(&branches[i], base) {
+            Some(rank) => fixed.push((rank, i)),
+            None => rest.push(i),
+        }
+    }
+    // Stable: remote branches with the same name keep their order.
+    fixed.sort_by_key(|&(rank, _)| rank);
+    let mut out: Vec<usize> = fixed.into_iter().map(|(_, i)| i).collect();
+    let shown = |pos: usize, i: usize| pos < RECENT || branches[i].is_head;
+    let hidden = rest
+        .iter()
+        .enumerate()
+        .filter(|&(pos, &i)| !shown(pos, i))
+        .count();
+    if hidden < MIN_HIDDEN {
+        out.extend(rest);
+        return (out, Fold::None);
+    }
+    if all {
+        out.extend(rest);
+        return (out, Fold::Less);
+    }
+    out.extend(
+        rest.iter()
+            .enumerate()
+            .filter(|&(pos, &i)| shown(pos, i))
+            .map(|(_, &i)| i),
+    );
+    (out, Fold::More(hidden))
+}
 
 /// The frame of a sidebar row: filled while `active`, highlighted on hover.
 pub(super) fn side_row(ix: usize, active: bool, cx: &App) -> Stateful<Div> {
@@ -127,8 +219,22 @@ impl GitApp {
                 label,
                 count: matches.len(),
             });
-            if !self.collapsed.contains(key) {
+            if self.collapsed.contains(key) {
+                continue;
+            }
+            if kind == RefKind::Tag {
                 rows.extend(matches.into_iter().map(Row::Branch));
+                continue;
+            }
+            // A filter shows every match.
+            let filtering = !needle.is_empty();
+            let all = filtering || self.expanded.contains(key);
+            let (shown, fold) = section_branches(&self.branches, &matches, self.base.as_deref(), all);
+            rows.extend(shown.into_iter().map(Row::Branch));
+            match fold {
+                Fold::More(n) => rows.push(Row::Fold { key, hidden: Some(n) }),
+                Fold::Less if !filtering => rows.push(Row::Fold { key, hidden: None }),
+                _ => {}
             }
         }
         rows
@@ -190,6 +296,24 @@ impl GitApp {
         };
         match row {
             &Row::Worktree(wi) => self.render_worktree_row(wi, ix, cx),
+            &Row::Fold { key, hidden } => {
+                let (icon, text) = match hidden {
+                    Some(n) => (IconName::ChevronDown, format!("Show {n} more")),
+                    None => (IconName::ChevronUp, "Show fewer".to_string()),
+                };
+                base(false)
+                    .text_size(px(12.))
+                    .text_color(muted)
+                    .child(Icon::new(icon).size(px(14.)))
+                    .child(text)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.expanded.remove(key) {
+                            this.expanded.insert(key);
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            }
             Row::Changes => {
                 let active = self.view == View::Changes;
                 let n = self.status.len();
@@ -537,5 +661,81 @@ impl GitApp {
                     .into_any_element()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: that brings in GPUI's `test` macro.
+    use super::{Fold, section_branches};
+    use crate::git::{Branch, RefKind};
+
+    fn branch(name: &str, kind: RefKind, is_head: bool) -> Branch {
+        let refname = match kind {
+            RefKind::Local => format!("refs/heads/{name}"),
+            RefKind::Remote => format!("refs/remotes/{name}"),
+            RefKind::Tag => format!("refs/tags/{name}"),
+        };
+        Branch {
+            refname,
+            name: name.to_string(),
+            kind,
+            ahead: 0,
+            behind: 0,
+            is_head,
+        }
+    }
+
+    fn names(branches: &[Branch], ixs: &[usize]) -> Vec<String> {
+        ixs.iter().map(|&i| branches[i].name.clone()).collect()
+    }
+
+    #[test]
+    fn a_short_section_pins_fixed_branches_and_the_head() {
+        // Newest first, as git lists them.
+        let list: Vec<Branch> = ["a", "b", "dev", "c", "d", "e", "f", "old", "main", "g"]
+            .iter()
+            .map(|n| branch(n, RefKind::Local, *n == "old"))
+            .collect();
+        let all: Vec<usize> = (0..list.len()).collect();
+        let (shown, fold) = section_branches(&list, &all, Some("refs/heads/main"), false);
+        assert_eq!(names(&list, &shown), ["main", "dev", "a", "b", "c", "d", "e", "old"]);
+        assert_eq!(fold, Fold::More(2), "f and g are hidden");
+
+        let (shown, fold) = section_branches(&list, &all, Some("refs/heads/main"), true);
+        assert_eq!(shown.len(), list.len());
+        assert_eq!(names(&list, &shown)[..2], ["main", "dev"]);
+        assert_eq!(fold, Fold::Less);
+    }
+
+    #[test]
+    fn a_small_section_shows_everything() {
+        let list: Vec<Branch> = ["a", "b", "c", "d", "e", "f", "master"]
+            .iter()
+            .map(|n| branch(n, RefKind::Local, false))
+            .collect();
+        let all: Vec<usize> = (0..list.len()).collect();
+        let (shown, fold) = section_branches(&list, &all, None, false);
+        // One branch past the five recent ones: no row to show it.
+        assert_eq!(names(&list, &shown), ["master", "a", "b", "c", "d", "e", "f"]);
+        assert_eq!(fold, Fold::None);
+    }
+
+    #[test]
+    fn remote_branches_count_by_their_name_on_the_remote() {
+        let list: Vec<Branch> = [
+            "origin/x1", "origin/x2", "upstream/main", "origin/x3", "origin/x4",
+            "origin/x5", "origin/x6", "origin/x7", "origin/main", "origin/feature/main",
+        ]
+        .iter()
+        .map(|n| branch(n, RefKind::Remote, false))
+        .collect();
+        let all: Vec<usize> = (0..list.len()).collect();
+        let (shown, fold) = section_branches(&list, &all, Some("refs/heads/main"), false);
+        assert_eq!(
+            names(&list, &shown),
+            ["upstream/main", "origin/main", "origin/x1", "origin/x2", "origin/x3", "origin/x4", "origin/x5"]
+        );
+        assert_eq!(fold, Fold::More(3));
     }
 }

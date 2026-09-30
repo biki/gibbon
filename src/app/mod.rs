@@ -208,6 +208,8 @@ pub struct GitApp {
     /// A dialog to open on the first frame (UI checks).
     check_dialog: Option<String>,
     collapsed: HashSet<&'static str>,
+    /// Branch sections that show all their branches, not the short list.
+    expanded: HashSet<&'static str>,
     /// Closed folders of the file trees: (list, folder path).
     collapsed_dirs: HashSet<(&'static str, String)>,
     busy: Option<SharedString>,
@@ -309,6 +311,7 @@ impl GitApp {
             prompt_sub: None,
             check_dialog: None,
             collapsed: HashSet::from(["tags"]),
+            expanded: HashSet::new(),
             collapsed_dirs: HashSet::new(),
             busy: None,
             log_scroll: UniformListScrollHandle::new(),

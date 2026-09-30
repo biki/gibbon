@@ -126,6 +126,11 @@ resets, merges, pulls, pushes, and the branch switches of each worktree.
 
 ### Branches, stashes and conflicts
 
+- The branch and remote lists show the base branch and the fixed branches
+  first (`main`, `master`, `trunk`, `develop`, `dev`, `development`,
+  `staging`, `production`), then the 5 branches with the newest commits and
+  the checked-out branch. **Show more** lists the others. The filter
+  searches all branches.
 - Create, rename, delete and switch branches (double-click to switch).
 - Delete a remote branch on its remote: right-click it in the sidebar.
 - Stash all changes, look at a stash's diff, then apply, pop or drop it.
