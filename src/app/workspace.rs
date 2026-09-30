@@ -222,14 +222,7 @@ impl Workspace {
     /// Toasts of the tabs and of the window.
     fn show_toasts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for (ok, msg) in std::mem::take(&mut self.toasts) {
-            window.defer(cx, move |window, cx| {
-                let note = match ok {
-                    Some(true) => Notification::success(msg),
-                    Some(false) => Notification::error(msg),
-                    None => Notification::info(msg),
-                };
-                window.push_notification(note, cx);
-            });
+            window.defer(cx, move |window, cx| window.push_notification(toast(ok, msg), cx));
         }
     }
 
@@ -477,6 +470,36 @@ impl Workspace {
 
 /// The tab to show after closing tab `closed` of `len + 1` tabs, while tab
 /// `active` was shown. The tab to the right takes the closed tab's place.
+/// A toast with its icon centered on the first line of the message.
+/// gpui-kit puts the icon of `Notification::success` 18 px from the top,
+/// which is below the line when the interface size is not 16 px.
+fn toast(ok: Option<bool>, msg: String) -> Notification {
+    let msg = SharedString::from(msg);
+    Notification::new().content(move |_, _, cx| {
+        let t = cx.theme();
+        let (icon, color) = match ok {
+            Some(true) => (IconName::CircleCheck, t.colors.success),
+            Some(false) => (IconName::CircleX, t.colors.danger),
+            None => (IconName::Info, t.colors.info),
+        };
+        // The icon box is one line high, so a long message wraps below it.
+        let line = rems(1.25);
+        h_flex()
+            .items_start()
+            .gap_3()
+            .text_sm()
+            .line_height(line)
+            .child(
+                h_flex()
+                    .flex_none()
+                    .h(line)
+                    .child(Icon::new(icon).text_color(color)),
+            )
+            .child(div().flex_1().min_w_0().child(msg.clone()))
+            .into_any_element()
+    })
+}
+
 fn shown_after_close(active: usize, closed: usize, len: usize) -> Option<usize> {
     if len == 0 {
         None
