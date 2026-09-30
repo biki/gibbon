@@ -213,10 +213,13 @@ impl GitApp {
                         FileRow::File { ix, depth } => {
                             let selected = this.stash_file == ix;
                             diff::file_row(&files.files[ix], selected, depth, ("stash-file", ix), cx)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.stash_file = ix;
-                                    cx.notify();
-                                }))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.stash_file = ix;
+                                        cx.notify();
+                                    }),
+                                )
                                 .into_any_element()
                         }
                     })

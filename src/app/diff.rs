@@ -374,10 +374,12 @@ impl GitApp {
                     .bg(gutter_bg)
                     .when(selected, |d| d.border_l_2().border_color(t.colors.primary))
                     .when(selectable, |d| {
-                        d.cursor_pointer()
-                            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                                this.toggle_line(i, e.modifiers().shift, cx)
-                            }))
+                        d.cursor_pointer().on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                this.toggle_line(i, e.modifiers.shift, cx)
+                            }),
+                        )
                     })
                     .child(num(line.old_no))
                     .child(num(line.new_no)),
@@ -450,10 +452,12 @@ impl GitApp {
                         .text_color(t.colors.muted_foreground.opacity(0.7))
                         .when(selected, |d| d.border_l_2().border_color(t.colors.primary))
                         .when(selectable, |d| {
-                            d.cursor_pointer()
-                                .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                                    this.toggle_line(i, e.modifiers().shift, cx)
-                                }))
+                            d.cursor_pointer().on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                    this.toggle_line(i, e.modifiers.shift, cx)
+                                }),
+                            )
                         })
                         .child(n.map(|n| n.to_string()).unwrap_or_default()),
                 )

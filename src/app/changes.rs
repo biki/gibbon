@@ -367,11 +367,14 @@ impl GitApp {
                                 )
                             })),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.change_sel = Some((path2.clone(), staged));
-                        this.load_change_diff(cx);
-                        cx.notify();
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.change_sel = Some((path2.clone(), staged));
+                            this.load_change_diff(cx);
+                            cx.notify();
+                        }),
+                    )
                     .context_menu(move |menu, _, _| {
                         let e = entry_menu.clone();
                         let (a, b, c) = (this.clone(), this.clone(), e.clone());

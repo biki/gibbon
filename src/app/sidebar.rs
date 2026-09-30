@@ -173,10 +173,13 @@ impl GitApp {
                     .child(Icon::new(IconName::FilePen).size(px(15.)).text_color(muted))
                     .child(label("Changes".into(), active))
                     .when(n > 0, |d| d.child(badge(n.to_string())))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.view = View::Changes;
-                        cx.notify();
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.view = View::Changes;
+                            cx.notify();
+                        }),
+                    )
                     .into_any_element()
             }
             Row::History => {
@@ -184,7 +187,10 @@ impl GitApp {
                 base(active)
                     .child(Icon::new(IconName::GitCommitVertical).size(px(15.)).text_color(muted))
                     .child(label("History".into(), active))
-                    .on_click(cx.listener(|this, _, _, cx| this.show_target(LogTarget::Head, cx)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.show_target(LogTarget::Head, cx)),
+                    )
                     .into_any_element()
             }
             Row::All => {
@@ -192,7 +198,10 @@ impl GitApp {
                 base(active)
                     .child(Icon::new(IconName::GitGraph).size(px(15.)).text_color(muted))
                     .child(label("All branches".into(), active))
-                    .on_click(cx.listener(|this, _, _, cx| this.show_target(LogTarget::All, cx)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.show_target(LogTarget::All, cx)),
+                    )
                     .into_any_element()
             }
             &Row::Header { key, label, count } => {
@@ -256,7 +265,10 @@ impl GitApp {
                                 .build(window, cx)
                         }
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| this.browse_pr(p.clone(), cx)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| this.browse_pr(p.clone(), cx)),
+                    )
                     .context_menu(move |menu, _, _| {
                         let (url, url2, n) = (
                             menu_pr.url.clone(),
@@ -305,7 +317,10 @@ impl GitApp {
                             .text_color(muted)
                             .child(fmt_time(s.time)),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.show_stash(index, cx)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| this.show_stash(index, cx)),
+                    )
                     .into_any_element()
             }
             &Row::Branch(bi) => {
@@ -338,13 +353,16 @@ impl GitApp {
                     .when_some(track, |d, s| {
                         d.child(div().text_size(px(11.)).text_color(muted).child(s))
                     })
-                    .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                        if e.click_count() >= 2 && branch.kind != RefKind::Tag {
-                            this.switch_branch(branch.clone(), cx);
-                        } else {
-                            this.show_target(LogTarget::Ref(refname.clone()), cx);
-                        }
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                            if e.click_count >= 2 && branch.kind != RefKind::Tag {
+                                this.switch_branch(branch.clone(), cx);
+                            } else {
+                                this.show_target(LogTarget::Ref(refname.clone()), cx);
+                            }
+                        }),
+                    )
                     .context_menu(move |menu, _, _| {
                         let (a, b, c) = (menu_branch.clone(), menu_branch.clone(), this.clone());
                         let this2 = this.clone();

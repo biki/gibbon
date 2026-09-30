@@ -293,9 +293,13 @@ impl GitApp {
                     .when(in_head, |d| d.opacity(0.45))
                     .child(c.short().to_string()),
             )
-            .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
-                this.click_commit(ix, e.modifiers(), window, cx)
-            }))
+            // Lists select on mouse down, as macOS lists do.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    this.click_commit(ix, e.modifiers, window, cx)
+                }),
+            )
             .context_menu(move |menu, _, _| {
                 let mut menu = menu;
                 if foreign {
@@ -507,10 +511,13 @@ impl GitApp {
                         FileRow::File { ix, depth } => {
                             let selected = this.detail_file == ix;
                             diff::file_row(&files.files[ix], selected, depth, ("detail-file", ix), cx)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.detail_file = ix;
-                                    cx.notify();
-                                }))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.detail_file = ix;
+                                        cx.notify();
+                                    }),
+                                )
                                 .into_any_element()
                         }
                     })
