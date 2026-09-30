@@ -410,7 +410,7 @@ impl GitApp {
                 .into_any_element();
         };
         let (subject, body) = match d.message.split_once('\n') {
-            Some((s, b)) => (s.to_string(), b.trim().to_string()),
+            Some((s, b)) => (s.to_string(), reflow(b).trim().to_string()),
             None => (d.message.clone(), String::new()),
         };
         let multi = self.selected.len() > 1;
@@ -554,6 +554,70 @@ impl GitApp {
     }
 }
 
+/// Join the lines that a commit body is wrapped at (often 72 columns), so
+/// the text wraps to the width of the pane. Blank lines, list items,
+/// indented lines, code fences and trailers (`Refs: #12`) keep their breaks.
+fn reflow(body: &str) -> String {
+    let mut out = vec![];
+    let mut para = vec![];
+    let mut fence = false;
+    for line in body.lines().map(str::trim_end) {
+        let fence_line = line.trim_start().starts_with("```");
+        if fence || fence_line || line.is_empty() {
+            join_lines(&mut para, &mut out);
+            out.push(line.to_string());
+            fence ^= fence_line;
+        } else {
+            para.push(line);
+        }
+    }
+    join_lines(&mut para, &mut out);
+    out.join("\n")
+}
+
+/// Move the lines of one paragraph to `out`, joined where they are prose.
+fn join_lines(para: &mut Vec<&str>, out: &mut Vec<String>) {
+    if para.iter().all(|l| is_trailer(l)) {
+        out.extend(para.drain(..).map(String::from));
+        return;
+    }
+    // The last line in `out` takes the next line of prose.
+    let mut open = false;
+    let mut in_item = false;
+    for line in para.drain(..) {
+        let text = line.trim_start();
+        let item = is_list_item(text);
+        let indented = text.len() < line.len();
+        match out.last_mut() {
+            Some(last) if open && !item && (!indented || in_item) => {
+                last.push(' ');
+                last.push_str(text);
+            }
+            _ => {
+                out.push(line.to_string());
+                in_item = item;
+                open = item || !indented;
+            }
+        }
+    }
+}
+
+fn is_list_item(text: &str) -> bool {
+    let rest = text.trim_start_matches(|c: char| c.is_ascii_digit());
+    if rest.len() < text.len() {
+        return rest.starts_with(". ") || rest.starts_with(") ");
+    }
+    ["- ", "* ", "+ ", "• "].iter().any(|m| text.starts_with(m))
+}
+
+/// `Signed-off-by: …`, `Refs: #12`, `BREAKING CHANGE: …`.
+fn is_trailer(line: &str) -> bool {
+    line.split_once(": ").is_some_and(|(key, _)| {
+        key == "BREAKING CHANGE"
+            || !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    })
+}
+
 pub(super) fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
@@ -623,4 +687,33 @@ fn sha_chip(sha: &str, cx: &App) -> impl IntoElement {
         .child(Icon::new(IconName::Copy).size(px(11.)))
         .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Copy SHA").build(window, cx))
         .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(full.clone())))
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: that brings in GPUI's `test` macro.
+    use super::reflow;
+
+    #[test]
+    fn reflow_joins_wrapped_prose() {
+        let body = "The workspace embedded the tab. So each render of\nthe window also rendered the tab.\n\nThe tab is now cached.";
+        assert_eq!(
+            reflow(body),
+            "The workspace embedded the tab. So each render of the window also rendered the tab.\n\nThe tab is now cached."
+        );
+    }
+
+    #[test]
+    fn reflow_keeps_lists_code_and_trailers() {
+        let body = "Changes:\n- one item that is\n  wrapped\n- two\n1. three\n\n    let x = 1;\n    let y = 2;\n\n```\na\nb\n```\n\nRefs: #12\nSigned-off-by: A <a@b.c>";
+        assert_eq!(
+            reflow(body),
+            "Changes:\n- one item that is wrapped\n- two\n1. three\n\n    let x = 1;\n    let y = 2;\n\n```\na\nb\n```\n\nRefs: #12\nSigned-off-by: A <a@b.c>"
+        );
+    }
+
+    #[test]
+    fn reflow_keeps_a_colon_in_prose() {
+        assert_eq!(reflow("Note: the old\nkey stays."), "Note: the old key stays.");
+    }
 }
