@@ -82,7 +82,7 @@ impl GitApp {
         );
     }
 
-    fn stash_op(&mut self, index: usize, pop: bool, cx: &mut Context<Self>) {
+    pub(super) fn stash_op(&mut self, index: usize, pop: bool, cx: &mut Context<Self>) {
         let label = if pop { "Popping…" } else { "Applying…" };
         let done = if pop {
             "Applied and removed the stash"
@@ -100,13 +100,22 @@ impl GitApp {
         );
     }
 
-    fn drop_stash_dialog(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn drop_stash_dialog(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.confirm(
             "Drop stash?",
             "This deletes the stash and its changes. You cannot undo it.".into(),
             "Drop",
             move |this, cx| {
-                this.view = View::Changes;
+                // The later stashes move up one index: the view would
+                // show the next stash under the old number.
+                if matches!(this.view, View::Stash(i) if i >= index) {
+                    this.view = View::Changes;
+                }
                 this.run_op(
                     "Dropping…",
                     Some("Dropped the stash".into()),

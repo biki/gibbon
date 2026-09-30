@@ -304,6 +304,7 @@ impl GitApp {
                 let s = &self.stashes[si];
                 let index = s.index;
                 let active = self.view == View::Stash(index);
+                let this = cx.entity();
                 base(active)
                     .child(Icon::new(IconName::Archive).size(px(14.)).text_color(muted))
                     .child(label(s.title().to_string(), false))
@@ -317,6 +318,19 @@ impl GitApp {
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| this.show_stash(index, cx)),
                     )
+                    .context_menu(move |menu, _, _| {
+                        let (this, this2, this3) = (this.clone(), this.clone(), this.clone());
+                        menu.item(PopupMenuItem::new("Apply").on_click(move |_, _, cx| {
+                            this.update(cx, |app, cx| app.stash_op(index, false, cx));
+                        }))
+                        .item(PopupMenuItem::new("Pop").on_click(move |_, _, cx| {
+                            this2.update(cx, |app, cx| app.stash_op(index, true, cx));
+                        }))
+                        .separator()
+                        .item(PopupMenuItem::new("Drop…").on_click(move |_, window, cx| {
+                            this3.update(cx, |app, cx| app.drop_stash_dialog(index, window, cx));
+                        }))
+                    })
                     .into_any_element()
             }
             &Row::Branch(bi) => {

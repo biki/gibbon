@@ -81,6 +81,7 @@ changes are stashed first and restored after.
 - Create, rename, delete and switch branches (double-click to switch).
 - Delete a remote branch on its remote: right-click it in the sidebar.
 - Stash all changes, look at a stash's diff, then apply, pop or drop it.
+  Right-click a stash in the sidebar to do the same without opening it.
 - When a cherry-pick, rebase, merge or revert stops on a conflict, Gibbon
   shows **Continue**, **Skip** and **Abort**.
 
