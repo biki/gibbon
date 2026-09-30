@@ -34,8 +34,48 @@ use crate::{
 };
 
 type IconName = gpui_kit::assets::IconName;
-/// Syntax and word styles, one per file of a commit or stash.
-type FileStyles = Rc<Vec<Rc<DiffStyles>>>;
+
+/// Files up to this many lines get their syntax colors in the same task as
+/// their text, so the diff shows with its colors at once. A longer file
+/// shows first, and its colors follow.
+const COLORS_WITH_TEXT: usize = 5_000;
+
+/// Syntax and word styles of the files of one commit or stash. A file gets
+/// its styles when it is first shown: a commit can have thousands of files.
+#[derive(Default)]
+struct FileStyles {
+    /// The commit or stash that the styles are for.
+    sha: String,
+    by_file: HashMap<usize, Rc<DiffStyles>>,
+    /// The file that a task highlights now. Dropping the task stops the
+    /// work if it has not started yet.
+    task: Option<(usize, Task<()>)>,
+}
+
+impl FileStyles {
+    fn new(sha: String, first: Option<(usize, DiffStyles)>) -> Self {
+        FileStyles {
+            sha,
+            by_file: first.into_iter().map(|(ix, s)| (ix, Rc::new(s))).collect(),
+            task: None,
+        }
+    }
+
+    fn get(&self, sha: &str, ix: usize) -> Option<Rc<DiffStyles>> {
+        if self.sha == sha {
+            self.by_file.get(&ix).cloned()
+        } else {
+            None
+        }
+    }
+}
+
+/// The detail that a `FileStyles` belongs to.
+#[derive(Clone, Copy)]
+enum Shown {
+    Commit,
+    Stash,
+}
 
 mod branches;
 mod changes;
@@ -75,7 +115,7 @@ pub struct GitApp {
     stashes: Vec<git::Stash>,
     prs: Vec<crate::github::PullRequest>,
     stash_detail: Option<Rc<CommitDetail>>,
-    stash_styles: Option<FileStyles>,
+    stash_styles: FileStyles,
     stash_file: usize,
     rebase: Option<rebase::RebaseUi>,
     /// A cherry-pick, rebase or merge stopped on conflicts.
@@ -91,8 +131,8 @@ pub struct GitApp {
     anchor: Option<usize>,
     cursor: Option<usize>,
     detail: Option<Rc<CommitDetail>>,
-    /// Syntax and word styles per file of `detail`, once computed.
-    detail_styles: Option<(String, FileStyles)>,
+    /// Syntax and word styles of the files of `detail` that were shown.
+    detail_styles: FileStyles,
     detail_file: usize,
     /// Selected working-tree file: (path, staged side).
     change_sel: Option<(String, bool)>,
@@ -142,8 +182,9 @@ impl GitApp {
             cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify()),
             // Light / dark switch: syntax colors come from the theme.
             cx.observe_global::<gpui_kit::component::theme::Theme>(|this, cx| {
-                this.detail_styles = None;
-                this.highlight_detail(cx);
+                this.detail_styles = FileStyles::default();
+                this.stash_styles = FileStyles::default();
+                this.highlight_shown(cx);
                 this.load_change_diff(cx);
             }),
         ];
@@ -158,7 +199,7 @@ impl GitApp {
             stashes: vec![],
             prs: vec![],
             stash_detail: None,
-            stash_styles: None,
+            stash_styles: FileStyles::default(),
             stash_file: 0,
             rebase: None,
             paused: None,
@@ -175,7 +216,7 @@ impl GitApp {
             anchor: None,
             cursor: None,
             detail: None,
-            detail_styles: None,
+            detail_styles: FileStyles::default(),
             detail_file: 0,
             change_sel: None,
             change_diff: None,
@@ -454,27 +495,35 @@ impl GitApp {
         let sha = commit.sha.clone();
         self.detail_epoch += 1;
         let epoch = self.detail_epoch;
+        // The colors of the commit shown before are not needed any more.
+        self.detail_styles.task = None;
+        let pending = self.pending_file;
+        let shown = self.shown_file_rule("commit", cx);
+        let theme = cx.theme().highlight_theme.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { git::commit_detail(&repo, &sha) })
+                .spawn(async move {
+                    let d = git::commit_detail(&repo, &sha)?;
+                    let ix = pending
+                        .filter(|&i| i < d.files.len())
+                        .or_else(|| shown(&d.files))
+                        .unwrap_or(0);
+                    let styles = colors_with_text(&d, ix, &theme);
+                    anyhow::Ok((d, ix, styles))
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if epoch != this.detail_epoch {
                     return;
                 }
                 match result {
-                    Ok(d) => {
-                        let n = d.files.len();
-                        let first = this.first_file("commit", &files::paths(&d.files), cx);
-                        this.detail_file = this
-                            .pending_file
-                            .take()
-                            .filter(|&i| i < n)
-                            .or(first)
-                            .unwrap_or(0);
+                    Ok((d, ix, styles)) => {
+                        this.pending_file = None;
+                        this.detail_file = ix;
+                        this.detail_styles = FileStyles::new(d.sha.clone(), styles.map(|s| (ix, s)));
                         this.detail = Some(Rc::new(d));
-                        this.highlight_detail(cx);
+                        this.highlight_shown(cx);
                     }
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
@@ -482,6 +531,25 @@ impl GitApp {
             });
         })
         .detach();
+    }
+
+    /// Which file a new commit or stash shows first: the first file of the
+    /// list `scope`, in the order and view of the settings. For a
+    /// background task.
+    fn shown_file_rule(
+        &self,
+        scope: &'static str,
+        cx: &App,
+    ) -> impl FnOnce(&[FileDiff]) -> Option<usize> + Send + 'static {
+        let s = crate::settings::get(cx);
+        let (tree, desc) = (s.file_tree, s.file_sort_desc);
+        let closed: HashSet<String> = self
+            .collapsed_dirs
+            .iter()
+            .filter(|(list, _)| *list == scope)
+            .map(|(_, dir)| dir.clone())
+            .collect();
+        move |files| files::first(&files::paths(files), tree, desc, &|dir| closed.contains(dir))
     }
 
     /// Keep a working-tree file selected while there are changes.
@@ -555,35 +623,58 @@ impl GitApp {
         .detach();
     }
 
-    /// Syntax colors for every file of the shown commit.
-    fn highlight_detail(&mut self, cx: &mut Context<Self>) {
-        let Some(detail) = self.detail.clone() else {
+    /// Start the syntax colors of the shown file of the commit and of the
+    /// stash, where that file has none yet.
+    fn highlight_shown(&mut self, cx: &mut Context<Self>) {
+        if let Some(d) = self.detail.clone() {
+            self.highlight_file(Shown::Commit, d, self.detail_file, cx);
+        }
+        if let Some(d) = self.stash_detail.clone() {
+            self.highlight_file(Shown::Stash, d, self.stash_file, cx);
+        }
+    }
+
+    fn file_styles(&mut self, of: Shown) -> &mut FileStyles {
+        match of {
+            Shown::Commit => &mut self.detail_styles,
+            Shown::Stash => &mut self.stash_styles,
+        }
+    }
+
+    fn highlight_file(
+        &mut self,
+        of: Shown,
+        detail: Rc<CommitDetail>,
+        ix: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file) = detail.files.get(ix) else {
             return;
         };
-        if self
-            .detail_styles
-            .as_ref()
-            .is_some_and(|(sha, _)| *sha == detail.sha)
-        {
+        let theme = cx.theme().highlight_theme.clone();
+        let styles = self.file_styles(of);
+        if styles.sha != detail.sha {
+            *styles = FileStyles::new(detail.sha.clone(), None);
+        }
+        if styles.by_file.contains_key(&ix) || styles.task.as_ref().is_some_and(|(i, _)| *i == ix) {
             return;
         }
-        let theme = cx.theme().highlight_theme.clone();
-        let files = detail.files.clone();
-        let sha = detail.sha.clone();
-        cx.spawn(async move |this, cx| {
-            let styles: Vec<DiffStyles> = cx
+        let (file, sha) = (file.clone(), detail.sha.clone());
+        let task = cx.spawn(async move |this, cx| {
+            let computed = cx
                 .background_executor()
-                .spawn(async move { files.iter().map(|f| highlight::compute(f, &theme)).collect() })
+                .spawn(async move { highlight::compute(&file, &theme) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this.detail.as_ref().is_some_and(|d| d.sha == sha) {
-                    let styles = styles.into_iter().map(Rc::new).collect();
-                    this.detail_styles = Some((sha, Rc::new(styles)));
+                let styles = this.file_styles(of);
+                if styles.sha == sha {
+                    styles.by_file.insert(ix, Rc::new(computed));
                     cx.notify();
                 }
             });
-        })
-        .detach();
+        });
+        // A task for another file stops, if it has not started yet.
+        self.file_styles(of).task = Some((ix, task));
     }
 
     /// Stage, unstage or discard some lines of the shown working-tree diff.
@@ -1373,6 +1464,17 @@ fn dialog_footer(
                     on_ok(window, cx);
                 }),
         )
+}
+
+/// The styles of file `ix` of `detail`, when it is short enough to wait for
+/// (see `COLORS_WITH_TEXT`).
+fn colors_with_text(
+    detail: &CommitDetail,
+    ix: usize,
+    theme: &gpui_kit::component::highlighter::HighlightTheme,
+) -> Option<DiffStyles> {
+    let file = detail.files.get(ix)?;
+    (file.lines.len() <= COLORS_WITH_TEXT).then(|| highlight::compute(file, theme))
 }
 
 /// 1234567 -> "1,234,567".

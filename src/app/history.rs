@@ -586,6 +586,7 @@ impl GitApp {
                                     MouseButton::Left,
                                     cx.listener(move |this, _, _, cx| {
                                         this.detail_file = ix;
+                                        this.highlight_shown(cx);
                                         cx.notify();
                                     }),
                                 )

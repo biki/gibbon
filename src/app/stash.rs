@@ -23,15 +23,17 @@ impl GitApp {
             self.stash_detail = None;
             return;
         };
+        self.stash_styles.task = None;
+        let shown = self.shown_file_rule("stash", cx);
         let theme = cx.theme().highlight_theme.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let d = git::stash_detail(&repo, &stash)?;
-                    let styles: Vec<DiffStyles> =
-                        d.files.iter().map(|f| highlight::compute(f, &theme)).collect();
-                    anyhow::Ok((d, styles))
+                    let ix = shown(&d.files).unwrap_or(0);
+                    let styles = colors_with_text(&d, ix, &theme);
+                    anyhow::Ok((d, ix, styles))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -39,12 +41,11 @@ impl GitApp {
                     return;
                 }
                 match result {
-                    Ok((d, styles)) => {
-                        let first = this.first_file("stash", &files::paths(&d.files), cx);
-                        this.stash_file = first.unwrap_or(0);
+                    Ok((d, ix, styles)) => {
+                        this.stash_file = ix;
+                        this.stash_styles = FileStyles::new(d.sha.clone(), styles.map(|s| (ix, s)));
                         this.stash_detail = Some(Rc::new(d));
-                        this.stash_styles =
-                            Some(Rc::new(styles.into_iter().map(Rc::new).collect()));
+                        this.highlight_shown(cx);
                     }
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
@@ -245,6 +246,7 @@ impl GitApp {
                                     MouseButton::Left,
                                     cx.listener(move |this, _, _, cx| {
                                         this.stash_file = ix;
+                                        this.highlight_shown(cx);
                                         cx.notify();
                                     }),
                                 )

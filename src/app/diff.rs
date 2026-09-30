@@ -119,8 +119,7 @@ impl GitApp {
                     .map(|d| DiffFile::Of(d, self.detail_file)),
                 self.detail
                     .as_ref()
-                    .and_then(|d| self.detail_styles.as_ref().filter(|(sha, _)| *sha == d.sha))
-                    .and_then(|(_, all)| all.get(self.detail_file).cloned()),
+                    .and_then(|d| self.detail_styles.get(&d.sha, self.detail_file)),
                 DiffCtx::Commit,
                 "commit-diff",
             ),
@@ -129,9 +128,9 @@ impl GitApp {
                     .clone()
                     .filter(|d| self.stash_file < d.files.len())
                     .map(|d| DiffFile::Of(d, self.stash_file)),
-                self.stash_styles
+                self.stash_detail
                     .as_ref()
-                    .and_then(|all| all.get(self.stash_file).cloned()),
+                    .and_then(|d| self.stash_styles.get(&d.sha, self.stash_file)),
                 DiffCtx::Commit,
                 "stash-diff",
             ),

@@ -136,6 +136,21 @@ fn push_node(
     }));
 }
 
+/// The first file that `layout` shows.
+pub(super) fn first(
+    paths: &[&str],
+    tree: bool,
+    desc: bool,
+    collapsed: &dyn Fn(&str) -> bool,
+) -> Option<usize> {
+    layout(paths, tree, desc, collapsed)
+        .into_iter()
+        .find_map(|r| match r {
+            FileRow::File { ix, .. } => Some(ix),
+            FileRow::Dir(_) => None,
+        })
+}
+
 impl GitApp {
     /// The rows of the file list `scope`, in the view and order of the
     /// settings.
@@ -143,14 +158,6 @@ impl GitApp {
         let s = crate::settings::get(cx);
         layout(paths, s.file_tree, s.file_sort_desc, &|dir| {
             self.collapsed_dirs.contains(&(scope, dir.to_string()))
-        })
-    }
-
-    /// The first file that the list `scope` shows.
-    pub(super) fn first_file(&self, scope: &'static str, paths: &[&str], cx: &App) -> Option<usize> {
-        self.file_rows(scope, paths, cx).into_iter().find_map(|r| match r {
-            FileRow::File { ix, .. } => Some(ix),
-            FileRow::Dir(_) => None,
         })
     }
 
