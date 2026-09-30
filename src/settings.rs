@@ -25,6 +25,10 @@ pub struct Settings {
     pub code_size: f32,
     /// Diffs open side by side.
     pub split_diff: bool,
+    /// Interface font, an id from `fonts::UI_FONTS`.
+    pub ui_font: String,
+    /// Code font, an id from `fonts::CODE_FONTS`.
+    pub code_font: String,
 }
 
 impl Default for Settings {
@@ -34,6 +38,8 @@ impl Default for Settings {
             ui_size: 13.,
             code_size: 12.,
             split_diff: false,
+            ui_font: crate::fonts::DEFAULT_UI.into(),
+            code_font: crate::fonts::DEFAULT_CODE.into(),
         }
     }
 }

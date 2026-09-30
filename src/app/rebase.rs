@@ -215,7 +215,7 @@ impl GitApp {
                     .w_full()
                     .justify_between()
                     .text_color(color)
-                    .font_family(MONO_FONT)
+                    .font_family(crate::theme::mono_font(cx))
                     .child(action.name())
                     .child(Icon::new(IconName::ChevronDown).size(px(12.))),
             )
@@ -273,7 +273,7 @@ impl GitApp {
                 div()
                     .w(px(64.))
                     .flex_none()
-                    .font_family(MONO_FONT)
+                    .font_family(crate::theme::mono_font(cx))
                     .text_size(px(11.5))
                     .text_color(muted)
                     .child(step.sha[..7].to_string()),

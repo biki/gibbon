@@ -287,7 +287,7 @@ impl GitApp {
                 div()
                     .w(px(64.))
                     .flex_none()
-                    .font_family(MONO_FONT)
+                    .font_family(crate::theme::mono_font(cx))
                     .text_size(px(11.5))
                     .text_color(muted)
                     .when(in_head, |d| d.opacity(0.45))
@@ -492,7 +492,7 @@ impl GitApp {
                             .children(
                                 d.parents
                                     .iter()
-                                    .map(|p| div().font_family(MONO_FONT).child(p[..7].to_string())),
+                                    .map(|p| div().font_family(crate::theme::mono_font(cx)).child(p[..7].to_string())),
                             )
                     }),
             );
@@ -631,7 +631,7 @@ fn sha_chip(sha: &str, cx: &App) -> impl IntoElement {
         .rounded(px(4.))
         .bg(t.colors.muted)
         .cursor_pointer()
-        .font_family(MONO_FONT)
+        .font_family(crate::theme::mono_font(cx))
         .child(sha[..sha.len().min(10)].to_string())
         .child(Icon::new(IconName::Copy).size(px(11.)))
         .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Copy SHA").build(window, cx))

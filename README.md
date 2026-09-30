@@ -83,9 +83,14 @@ changes are stashed first and restored after.
 
 ### Make it yours
 
-Light and dark themes that follow macOS, Inter for the interface and
-JetBrains Mono for code, and settings (<kbd>⌘</kbd><kbd>,</kbd>) for
-appearance, text sizes and the default diff view.
+Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
+
+- Light and dark themes, or follow macOS.
+- Eight interface fonts: SF Pro, Geist, IBM Plex Sans, Manrope, DM Sans,
+  Figtree, Instrument Sans and Inter.
+- Eight code fonts: SF Mono, Geist Mono, IBM Plex Mono, Fira Code,
+  Source Code Pro, DM Mono, Martian Mono and JetBrains Mono.
+- Text sizes and the default diff view.
 
 ## Getting started
 
@@ -185,6 +190,6 @@ Environment variables for automated UI checks:
 ## License
 
 [MIT](LICENSE) © 2026 Benjamin Kaspar.
-The bundled fonts [Inter](https://rsms.me/inter/) and
-[JetBrains Mono](https://www.jetbrains.com/lp/mono/) use the SIL Open Font
-License 1.1 (see `assets/fonts/`).
+All bundled fonts use the SIL Open Font License 1.1; each license is in
+`assets/fonts/`. `scripts/fetch-fonts.sh` downloads them from Google Fonts.
+SF Pro and SF Mono come from macOS and are not bundled.

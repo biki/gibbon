@@ -25,7 +25,6 @@ use crate::git::{
 use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
 use diff::{DiffCtx, DiffMode};
-use crate::theme::{MONO_FONT, UI_FONT};
 use crate::{
     CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowAllBranches,
     ShowChanges, ShowHistory,
@@ -1184,7 +1183,7 @@ impl GitApp {
             .when_some(self.head.sha.as_ref(), |d, sha| {
                 d.child(
                     div()
-                        .font_family(MONO_FONT)
+                        .font_family(crate::theme::mono_font(cx))
                         .child(sha[..sha.len().min(7)].to_string()),
                 )
             })
@@ -1349,7 +1348,7 @@ impl Render for GitApp {
             .size_full()
             .bg(bg)
             .text_color(fg)
-            .font_family(UI_FONT)
+            .font_family(crate::theme::ui_font(cx))
             .text_size(px(crate::settings::get(cx).ui_size))
             .child(self.render_title_bar(cx))
             .child(div().flex_1().min_h_0().child(body))

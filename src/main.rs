@@ -5,6 +5,7 @@ use gpui_kit::component::{Root, TitleBar};
 use gpui_kit::*;
 
 mod app;
+mod fonts;
 mod git;
 mod github;
 mod graph;
@@ -59,7 +60,7 @@ fn main() {
         bind_keys(cx);
         install_menus(cx);
         cx.set_global(settings::load());
-        if let Err(e) = theme::load_fonts(cx) {
+        if let Err(e) = fonts::load(cx) {
             eprintln!("font load error: {e:#}");
         }
         theme::apply(cx);

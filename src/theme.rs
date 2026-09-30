@@ -1,18 +1,23 @@
-//! Fonts and colors. Inter for the UI, JetBrains Mono for code; both are
-//! embedded (SIL OFL 1.1, licenses in `assets/fonts/`).
+//! Colors, and the fonts the settings chose (see `fonts.rs`).
 //!
 //! The palette becomes a kit `ThemeConfig`, so the kit derives the shades we
 //! do not set.
 
-use std::borrow::Cow;
 use std::rc::Rc;
 
 use gpui_kit::component::theme::{Theme, ThemeConfig, ThemeMode};
 use gpui_kit::*;
 use serde_json::{Value, json};
 
-pub const UI_FONT: &str = "Inter";
-pub const MONO_FONT: &str = "JetBrains Mono";
+/// The interface font family from the settings, as the theme holds it.
+pub fn ui_font(cx: &App) -> SharedString {
+    Theme::global(cx).font_family.clone()
+}
+
+/// The code font family from the settings, as the theme holds it.
+pub fn mono_font(cx: &App) -> SharedString {
+    Theme::global(cx).mono_font_family.clone()
+}
 
 pub struct Palette {
     pub light: bool,
@@ -126,21 +131,6 @@ pub fn palette(cx: &App) -> &'static Palette {
             WindowAppearance::Dark | WindowAppearance::VibrantDark => &DARK,
         },
     }
-}
-
-pub fn load_fonts(cx: &mut App) -> anyhow::Result<()> {
-    let fonts: Vec<Cow<'static, [u8]>> = vec![
-        Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Regular.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Medium.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/Inter-SemiBold.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/Inter-Bold.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Medium.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Bold.ttf")),
-        Cow::Borrowed(include_bytes!("../assets/fonts/JetBrainsMono-Italic.ttf")),
-    ];
-    cx.text_system().add_fonts(fonts)?;
-    Ok(())
 }
 
 fn hex(c: u32) -> String {
@@ -276,9 +266,9 @@ pub fn apply(cx: &mut App) {
     {
         let s = crate::settings::get(cx).clone();
         let theme = Theme::global_mut(cx);
-        theme.font_family = UI_FONT.into();
+        theme.font_family = crate::fonts::ui(&s.ui_font).family.into();
         theme.font_size = px(s.ui_size);
-        theme.mono_font_family = MONO_FONT.into();
+        theme.mono_font_family = crate::fonts::code(&s.code_font).family.into();
         theme.mono_font_size = px(s.code_size);
         theme.radius = px(6.);
         theme.radius_lg = px(8.);

@@ -1,5 +1,6 @@
 //! The settings dialog (⌘,). Every change applies at once.
 
+use crate::fonts::{self, FontChoice};
 use crate::settings::{self, Appearance};
 
 use super::*;
@@ -68,12 +69,53 @@ impl GitApp {
                 },
                 cx,
             );
-            dialog.title("Settings").w(px(520.)).child(
+            let ui_font = fonts::ui(&s.ui_font);
+            let code_font = fonts::code(&s.code_font);
+            let section = |label: &'static str, grid: AnyElement, preview: AnyElement| {
+                v_flex()
+                    .w_full()
+                    .py_2()
+                    .gap_2()
+                    .child(div().font_weight(FontWeight::MEDIUM).child(label))
+                    .child(grid)
+                    .child(preview)
+            };
+            let preview = |family: &'static str, size: f32, text: &'static str| {
+                div()
+                    .px_2()
+                    .py_1p5()
+                    .rounded(px(6.))
+                    .bg(cx.theme().colors.muted)
+                    .font_family(family)
+                    .text_size(px(size))
+                    .truncate()
+                    .child(text)
+                    .into_any_element()
+            };
+            dialog.title("Settings").w(px(640.)).child(
                 v_flex()
                     .child(row(
                         "Appearance",
                         "Follow macOS, or keep one look.",
                         appearance.into_any_element(),
+                    ))
+                    .child(section(
+                        "Interface font",
+                        font_grid("ui-font", fonts::UI_FONTS, ui_font.id, false, cx),
+                        preview(
+                            ui_font.family,
+                            s.ui_size,
+                            "Browsing feature/login · you stay on main · 3 commits to pick",
+                        ),
+                    ))
+                    .child(section(
+                        "Code font",
+                        font_grid("code-font", fonts::CODE_FONTS, code_font.id, true, cx),
+                        preview(
+                            code_font.family,
+                            s.code_size,
+                            ".unwrap_or(3000); // Il1| O0 {} => != <=",
+                        ),
                     ))
                     .child(row(
                         "Interface text",
@@ -93,4 +135,56 @@ impl GitApp {
             )
         });
     }
+}
+
+/// Four columns of font cards; each name is set in its own font.
+fn font_grid(
+    id: &'static str,
+    list: &'static [FontChoice],
+    current: &'static str,
+    code: bool,
+    cx: &App,
+) -> AnyElement {
+    let t = cx.theme();
+    div()
+        .grid()
+        .grid_cols(4)
+        .gap(px(6.))
+        .children(list.iter().enumerate().map(|(i, f)| {
+            let selected = f.id == current;
+            div()
+                .id((id, i))
+                .min_w_0()
+                .px_2()
+                .py_1p5()
+                .rounded(px(7.))
+                .border_1()
+                .cursor_pointer()
+                .border_color(if selected { t.colors.primary } else { t.colors.border })
+                .when(selected, |d| d.bg(t.colors.primary.opacity(0.14)))
+                .when(!selected, |d| d.hover(|d| d.bg(t.colors.list_hover)))
+                .child(
+                    div()
+                        .font_family(f.family)
+                        .text_size(px(13.))
+                        .truncate()
+                        .child(f.name),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.5))
+                        .text_color(t.colors.muted_foreground)
+                        .child(f.note),
+                )
+                .on_click(move |_, _, cx| {
+                    settings::update(cx, |s| {
+                        if code {
+                            s.code_font = f.id.to_string();
+                        } else {
+                            s.ui_font = f.id.to_string();
+                        }
+                    })
+                })
+        }))
+        .into_any_element()
 }

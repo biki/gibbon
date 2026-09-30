@@ -284,7 +284,7 @@ impl GitApp {
             .pr_2()
             .gap_1()
             .bg(t.colors.primary.opacity(0.07))
-            .font_family(MONO_FONT)
+            .font_family(crate::theme::mono_font(cx))
             .text_size(px(11.5))
             .text_color(t.colors.muted_foreground)
             .child(div().flex_1().min_w_0().truncate().child(line.text.clone()))
@@ -292,7 +292,7 @@ impl GitApp {
                 d.when(!staged, |d| {
                     d.child(
                         Button::new(("hunk-discard", i))
-                            .font_family(UI_FONT)
+                            .font_family(crate::theme::ui_font(cx))
                             .ghost()
                             .xsmall()
                             .label("Discard")
@@ -305,7 +305,7 @@ impl GitApp {
                 })
                 .child(
                     Button::new(("hunk-stage", i))
-                        .font_family(UI_FONT)
+                        .font_family(crate::theme::ui_font(cx))
                         .ghost()
                         .xsmall()
                         .label(if staged { "Unstage hunk" } else { "Stage hunk" })
@@ -358,7 +358,7 @@ impl GitApp {
             .h(px(line_h))
             .w_full()
             .bg(bg)
-            .font_family(MONO_FONT)
+            .font_family(crate::theme::mono_font(cx))
             .text_size(px(size))
             .child(
                 h_flex()
@@ -402,7 +402,7 @@ impl GitApp {
                 return div()
                     .h(px(line_h))
                     .pl(px(106.))
-                    .font_family(MONO_FONT)
+                    .font_family(crate::theme::mono_font(cx))
                     .text_size(px(11.5))
                     .text_color(muted)
                     .child(file.lines[i].text.clone())
@@ -461,7 +461,7 @@ impl GitApp {
             .id(("split", ix))
             .h(px(line_h))
             .w_full()
-            .font_family(MONO_FONT)
+            .font_family(crate::theme::mono_font(cx))
             .text_size(px(size))
             .child(l)
             .child(div().w(px(1.)).h_full().bg(border))
