@@ -163,8 +163,14 @@ keychain has one, and ad hoc otherwise.
 
 ```sh
 git config core.hooksPath .githooks   # checks commit messages
+scripts/dev.sh ~/path/to/repo         # rebuild and restart on every save
 cargo test                            # Git backend, graph, highlighting and watcher tests
 ```
+
+`scripts/dev.sh` rebuilds Gibbon and restarts it when a source file changes,
+in about 2 seconds. Gibbon reopens on the same screen and does not take focus
+from your editor. In debug builds, <kbd>⌘</kbd><kbd>⌥</kbd><kbd>I</kbd> opens
+the GPUI inspector: pick an element and edit its style live.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the types and scopes.
@@ -181,6 +187,8 @@ Environment variables for automated UI checks:
 | `GIBBON_REBASE=<sha>` | Open the rebase planner from that commit |
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
 | `GIBBON_DIALOG=new-branch\|stash\|palette\|settings` | Open that dialog |
+| `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
+| `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 
 ## Built with
 

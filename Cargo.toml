@@ -3,6 +3,8 @@ name = "gibbon"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+# `cargo run` starts the app; `src/bin/dev.rs` is the dev loop.
+default-run = "gibbon"
 
 [dependencies]
 gpui-kit = { version = "0.6", features = ["tree-sitter-languages"] }
