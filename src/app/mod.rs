@@ -105,6 +105,14 @@ pub struct GitApp {
     toasts: Vec<(Option<bool>, String)>,
     log_scroll: UniformListScrollHandle,
     side_scroll: UniformListScrollHandle,
+    /// The last saved session, and the pending save.
+    last_session: Option<(Option<crate::session::Place>, Option<crate::session::RepoState>)>,
+    save_task: Option<Task<()>>,
+    /// A restored selection, applied when the log or the commit loads.
+    pending_commit: Option<String>,
+    pending_file: Option<usize>,
+    /// Open the inspector on the first frame (UI checks, debug builds).
+    check_inspector: bool,
     _watcher: Option<crate::watch::RepoWatcher>,
     _watch_task: Option<Task<()>>,
     log_epoch: u64,
@@ -178,6 +186,11 @@ impl GitApp {
             toasts: vec![],
             log_scroll: UniformListScrollHandle::new(),
             side_scroll: UniformListScrollHandle::new(),
+            last_session: None,
+            save_task: None,
+            pending_commit: None,
+            pending_file: None,
+            check_inspector: false,
             _watcher: None,
             _watch_task: None,
             log_epoch: 0,
@@ -220,6 +233,9 @@ impl GitApp {
                 self.detail = None;
                 self.change_sel = None;
                 self.change_diff = None;
+                self.pending_commit = None;
+                self.pending_file = None;
+                self.restore_session();
                 self.start_watcher(cx);
                 self.reload(cx);
                 self.load_prs(cx);
@@ -391,10 +407,11 @@ impl GitApp {
         self.log_loading = true;
         let target = self.target.clone();
         let foreign = self.foreign_target().map(str::to_string);
-        let keep = self
-            .cursor
-            .and_then(|i| self.commits.get(i))
-            .map(|c| c.sha.clone());
+        let keep = self.pending_commit.take().or_else(|| {
+            self.cursor
+                .and_then(|i| self.commits.get(i))
+                .map(|c| c.sha.clone())
+        });
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -462,8 +479,9 @@ impl GitApp {
                 }
                 match result {
                     Ok(d) => {
+                        let n = d.files.len();
+                        this.detail_file = this.pending_file.take().filter(|&i| i < n).unwrap_or(0);
                         this.detail = Some(Rc::new(d));
-                        this.detail_file = 0;
                         this.highlight_detail(cx);
                     }
                     Err(e) => this.toast(Some(false), e.to_string()),
@@ -785,11 +803,90 @@ impl GitApp {
         cx.notify();
     }
 
+    /// What to reopen for the current repository.
+    fn repo_state(&self) -> Option<crate::session::RepoState> {
+        self.repo.as_ref()?;
+        let view = match self.view {
+            View::Changes => "changes".to_string(),
+            View::Stash(n) => format!("stash:{n}"),
+            View::History | View::Rebase => "history".to_string(),
+        };
+        let target = match &self.target {
+            LogTarget::Head => None,
+            LogTarget::All => Some("all".to_string()),
+            LogTarget::Ref(r) => Some(r.clone()),
+        };
+        // Until the log and the commit load, keep what was restored.
+        let commit = self.pending_commit.clone().or_else(|| {
+            self.cursor
+                .and_then(|i| self.commits.get(i))
+                .map(|c| c.sha.clone())
+        });
+        Some(crate::session::RepoState {
+            view,
+            target,
+            commit,
+            file: self.pending_file.unwrap_or(self.detail_file),
+            change: self.change_sel.clone(),
+        })
+    }
+
+    /// Reopen where this repository was left.
+    fn restore_session(&mut self) {
+        let Some(root) = self.repo.as_ref().map(|r| r.root.clone()) else {
+            return;
+        };
+        let Some(s) = crate::session::load().repos.remove(&root) else {
+            return;
+        };
+        self.view = match s.view.as_str() {
+            "changes" => View::Changes,
+            v => match v.strip_prefix("stash:").and_then(|n| n.parse().ok()) {
+                Some(n) => View::Stash(n),
+                None => View::History,
+            },
+        };
+        self.target = match s.target.as_deref() {
+            None => LogTarget::Head,
+            Some("all") => LogTarget::All,
+            Some(r) => LogTarget::Ref(r.to_string()),
+        };
+        self.pending_commit = s.commit;
+        self.pending_file = Some(s.file);
+        self.change_sel = s.change;
+    }
+
+    /// Save the session 400 ms after it last changed.
+    fn persist_session(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let b = window.window_bounds().get_bounds();
+        let place = Some(crate::session::Place {
+            x: f32::from(b.origin.x).round() as i32,
+            y: f32::from(b.origin.y).round() as i32,
+            w: f32::from(b.size.width).round() as i32,
+            h: f32::from(b.size.height).round() as i32,
+        });
+        let state = self.repo_state();
+        let snapshot = (place, state.clone());
+        if self.last_session.as_ref() == Some(&snapshot) {
+            return;
+        }
+        self.last_session = Some(snapshot);
+        let root = self.repo.as_ref().map(|r| r.root.clone());
+        self.save_task = Some(cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(400))
+                .await;
+            cx.background_executor()
+                .spawn(async move { crate::session::save(place, root.as_deref(), state.as_ref()) })
+                .await;
+        }));
+    }
+
     /// Start state for automated UI checks:
     /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all`,
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
     /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`,
-    /// `GIBBON_DIALOG=new-branch|stash|palette|settings`.
+    /// `GIBBON_DIALOG=new-branch|stash|palette|settings`, `GIBBON_INSPECTOR=1`.
     pub fn apply_check_env(&mut self, cx: &mut Context<Self>) {
         let var = |k: &str| std::env::var(k).ok();
         if let Some(b) = var("GIBBON_BROWSE") {
@@ -813,6 +910,7 @@ impl GitApp {
             self.view = View::Stash(n);
         }
         self.check_dialog = var("GIBBON_DIALOG");
+        self.check_inspector = var("GIBBON_INSPECTOR").is_some();
     }
 
     /// Browse a branch by short name, before the refs have loaded.
@@ -1282,6 +1380,11 @@ impl Render for GitApp {
                 window.push_notification(note, cx);
             });
         }
+        #[cfg(debug_assertions)]
+        if std::mem::take(&mut self.check_inspector) {
+            window.defer(cx, |window, cx| window.toggle_inspector(cx));
+        }
+        self.persist_session(window, cx);
         if let Some(which) = self.check_dialog.take() {
             match which.as_str() {
                 "new-branch" => self.new_branch_dialog(None, window, cx),

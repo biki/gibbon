@@ -11,6 +11,7 @@ mod github;
 mod graph;
 mod highlight;
 mod recent;
+mod session;
 mod settings;
 mod theme;
 mod watch;
@@ -65,7 +66,7 @@ fn main() {
         }
         theme::apply(cx);
         open_window(cx, arg.clone());
-        if !background() {
+        if !no_activate() {
             cx.activate(true);
         }
     });
@@ -83,6 +84,12 @@ fn migrate_data_dir() {
 /// `GIBBON_BACKGROUND=1`: never take focus (automated UI checks).
 fn background() -> bool {
     std::env::var_os("GIBBON_BACKGROUND").is_some()
+}
+
+/// `GIBBON_NO_ACTIVATE=1` (set by the dev loop on restarts): open the window
+/// without taking focus from the editor.
+fn no_activate() -> bool {
+    background() || std::env::var_os("GIBBON_NO_ACTIVATE").is_some()
 }
 
 fn bind_keys(cx: &mut App) {
@@ -139,12 +146,22 @@ fn install_menus(cx: &mut App) {
 }
 
 fn open_window(cx: &mut App, path: Option<PathBuf>) {
-    let bounds = Bounds::centered(None, size(px(1320.), px(840.)), cx);
+    // The last window place, if it is still on a screen.
+    let bounds = session::load()
+        .window
+        .map(|p| {
+            Bounds::new(
+                point(px(p.x as f32), px(p.y as f32)),
+                size(px(p.w as f32), px(p.h as f32)),
+            )
+        })
+        .filter(|b| cx.displays().iter().any(|d| d.bounds().intersects(b)))
+        .unwrap_or_else(|| Bounds::centered(None, size(px(1320.), px(840.)), cx));
     let result = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(900.), px(560.))),
-            focus: !background(),
+            focus: !no_activate(),
             // Occluded windows stop painting: keep UI-check windows on top.
             kind: if background() {
                 WindowKind::PopUp

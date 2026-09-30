@@ -92,6 +92,9 @@ Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
   Source Code Pro, DM Mono, Martian Mono and JetBrains Mono.
 - Text sizes and the default diff view.
 
+Gibbon remembers its window and reopens each repository where you left it:
+the same view, branch, commit and file.
+
 ## Getting started
 
 > [!IMPORTANT]
@@ -141,7 +144,7 @@ keychain has one, and ad hoc otherwise.
 
 | What | Where |
 | --- | --- |
-| Settings and recent repositories | `~/Library/Application Support/gibbon/` |
+| Settings, recent repositories and the last session | `~/Library/Application Support/gibbon/` |
 | Fetched pull request heads | `refs/gibbon/pr/<number>` in your repository |
 | Messages of a paused interactive rebase | `.git/gibbon-rebase/` in your repository |
 
