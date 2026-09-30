@@ -154,8 +154,12 @@ keychain has one, and ad hoc otherwise.
 ## Development
 
 ```sh
-cargo test      # Git backend, graph, highlighting and watcher tests
+git config core.hooksPath .githooks   # checks commit messages
+cargo test                            # Git backend, graph, highlighting and watcher tests
 ```
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the types and scopes.
 
 Environment variables for automated UI checks:
 
