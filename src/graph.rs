@@ -12,6 +12,8 @@ use gpui_kit::*;
 use crate::git::Commit;
 
 pub const LANE_W: f32 = 14.;
+/// The width of the lines.
+const LINE_W: f32 = 1.6;
 /// Lanes wider than this are clipped (the widest histories have hundreds).
 pub const MAX_LANES: usize = 14;
 
@@ -166,19 +168,25 @@ pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut 
         if !visible(lanes.0) || !visible(lanes.1) {
             continue;
         }
-        let mut b = PathBuilder::stroke(px(1.6));
-        b.move_to(point(px(from.0), px(from.1)));
         if (from.0 - to.0).abs() < 0.5 {
-            b.line_to(point(px(to.0), px(to.1)));
-        } else {
-            // An S-curve that leaves and enters vertically.
-            let my = (from.1 + to.1) / 2.;
-            b.cubic_bezier_to(
-                point(px(to.0), px(to.1)),
-                point(px(from.0), px(my)),
-                point(px(to.0), px(my)),
+            // Most lines are straight: a quad costs much less than a path,
+            // which is built again on each frame.
+            let bounds = Bounds::new(
+                point(px(from.0 - LINE_W / 2.), px(from.1)),
+                size(px(LINE_W), px(to.1 - from.1)),
             );
+            window.paint_quad(fill(bounds, lane_color(color)));
+            continue;
         }
+        // An S-curve that leaves and enters vertically.
+        let mut b = PathBuilder::stroke(px(LINE_W));
+        b.move_to(point(px(from.0), px(from.1)));
+        let my = (from.1 + to.1) / 2.;
+        b.cubic_bezier_to(
+            point(px(to.0), px(to.1)),
+            point(px(from.0), px(my)),
+            point(px(to.0), px(my)),
+        );
         if let Ok(path) = b.build() {
             window.paint_path(path, lane_color(color));
         }
@@ -204,7 +212,7 @@ pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut 
     let color = lane_color(row.color);
     if row.merge {
         window.paint_quad(
-            quad(node, px(r), bg, px(1.6), color, BorderStyle::Solid),
+            quad(node, px(r), bg, px(LINE_W), color, BorderStyle::Solid),
         );
     } else {
         window.paint_quad(fill(node, color).corner_radii(px(r)));
