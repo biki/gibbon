@@ -17,3 +17,9 @@ serde_json = "1"
 similar = "3"
 notify = "8"
 ignore = "0.4"
+
+# Debug builds optimize the dependencies. Unoptimized, GPUI needs about six
+# times the work for each frame, and scrolling stutters. Gibbon itself stays
+# unoptimized, so a rebuild after an edit still takes about 2 seconds.
+[profile.dev.package."*"]
+opt-level = 3
