@@ -1,6 +1,8 @@
 //! The window: a tab per open repository in the title bar, the shown tab
 //! below it, and the welcome screen when no tab is open.
 
+use std::path::Path;
+
 use super::*;
 use crate::{CloseTab, NextTab, PrevTab};
 
@@ -12,6 +14,44 @@ struct Tab {
     /// the tab: a tab that render reads redraws the window on each change.
     busy: bool,
     _subs: Vec<Subscription>,
+}
+
+/// A tab while the pointer drags it. GPUI draws it under the pointer, and
+/// it stays in the tab strip: it moves only sideways, as far as the tabs go.
+#[derive(Clone)]
+struct DraggedTab {
+    name: SharedString,
+    busy: bool,
+    /// Where the pointer took the tab, from its top left corner.
+    grab: Point<Pixels>,
+    /// The tab's bounds when the drag started.
+    start: Bounds<Pixels>,
+    /// The left and right edges of the tabs.
+    strip: (Pixels, Pixels),
+}
+
+impl Render for DraggedTab {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // GPUI puts the top left corner at `at`.
+        let at = window.mouse_position() - self.grab;
+        let width = self.start.size.width;
+        let left = at.x.min(self.strip.1 - width).max(self.strip.0);
+        // GPUI draws it outside the workspace, which sets the font.
+        tab_frame(true, cx)
+            .relative()
+            .left(left - at.x)
+            .top(self.start.top() - at.y)
+            .w(width)
+            .pr_2p5()
+            .shadow_md()
+            .font_family(crate::theme::ui_font(cx))
+            .text_size(px(crate::settings::get(cx).ui_size))
+            .children(tab_label(
+                self.name.clone(),
+                self.busy,
+                cx.theme().colors.muted_foreground,
+            ))
+    }
 }
 
 /// What the session file last got: window place, tabs, shown tab, and the
@@ -31,6 +71,11 @@ pub struct Workspace {
     toasts: Vec<(Option<bool>, String)>,
     last_session: Option<Snapshot>,
     save_task: Option<Task<()>>,
+    /// Where the tabs were in the last frame.
+    tab_bounds: Vec<Bounds<Pixels>>,
+    /// The tab that the pointer drags, and where the pointer took it, from
+    /// the tab's left edge. Render clears it when no drag runs.
+    dragged: Option<(PathBuf, Pixels)>,
 }
 
 impl Workspace {
@@ -43,6 +88,8 @@ impl Workspace {
             toasts: vec![],
             last_session: None,
             save_task: None,
+            tab_bounds: vec![],
+            dragged: None,
         }
     }
 
@@ -189,11 +236,38 @@ impl Workspace {
         }
     }
 
+    fn tab_of(&self, root: &Path) -> Option<usize> {
+        self.tabs.iter().position(|t| t.repo.root == root)
+    }
+
     fn step(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         let n = self.tabs.len() as isize;
         if n > 1 {
             let ix = (self.active as isize + delta).rem_euclid(n) as usize;
             self.activate(ix, window, cx);
+        }
+    }
+
+    /// Put the dragged tab where its middle is, with the pointer at `x`.
+    /// The tabs between take one step towards the tab's old place.
+    fn drag_tab(&mut self, x: Pixels, cx: &mut Context<Self>) {
+        let Some((root, grab)) = self.dragged.clone() else {
+            return;
+        };
+        let Some(from) = self.tab_of(&root) else {
+            return;
+        };
+        let Some(width) = self.tab_bounds.get(from).map(|b| b.size.width) else {
+            return;
+        };
+        match slot_at(&self.tab_bounds, x - grab + width / 2.) {
+            Some(to) if to != from && to < self.tabs.len() => {
+                let tab = self.tabs.remove(from);
+                self.tabs.insert(to, tab);
+                self.active = index_after_move(self.active, from, to);
+                cx.notify();
+            }
+            _ => {}
         }
     }
 
@@ -272,6 +346,7 @@ impl Workspace {
             .cloned()
             .map(|app| app.update(cx, |app, cx| app.render_repo_actions(cx).into_any_element()));
         let tabs: Vec<AnyElement> = (0..self.tabs.len()).map(|ix| self.render_tab(ix, cx)).collect();
+        let this = cx.entity();
         TitleBar::new().child(
             h_flex()
                 .w_full()
@@ -285,7 +360,13 @@ impl Workspace {
                         .gap_1()
                         .items_center()
                         .overflow_hidden()
-                        .children(tabs),
+                        .children(tabs)
+                        .on_children_prepainted(move |bounds, _, cx| {
+                            this.update(cx, |this, _| this.tab_bounds = bounds)
+                        })
+                        .on_drag_move(cx.listener(|this, e: &DragMoveEvent<DraggedTab>, _, cx| {
+                            this.drag_tab(e.event.position.x, cx)
+                        })),
                 )
                 .child(self.render_add_button(cx))
                 .child(div().flex_1())
@@ -295,41 +376,31 @@ impl Workspace {
 
     fn render_tab(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let t = cx.theme();
-        let muted = t.colors.muted_foreground;
         let tab = &self.tabs[ix];
         let active = ix == self.active;
-        let busy = tab.busy;
-        let path: SharedString = tab.repo.root.display().to_string().into();
-        h_flex()
+        let root = tab.repo.root.clone();
+        let path: SharedString = root.display().to_string().into();
+        let name: SharedString = tab.repo.name.clone().into();
+        // Its place stays empty while the pointer drags it.
+        let dragged = self.dragged.as_ref().is_some_and(|(r, _)| *r == root);
+        let drag = DraggedTab {
+            name: name.clone(),
+            busy: tab.busy,
+            grab: Point::default(),
+            start: Bounds::default(),
+            strip: Default::default(),
+        };
+        let this = cx.entity();
+        tab_frame(active, cx)
             .id(("tab", ix))
             .group("tab")
             // One width for all tabs; they get narrower when many are open.
             .w(px(150.))
             .min_w(px(90.))
-            .h(px(26.))
-            .pl_2p5()
-            .pr_1()
-            .gap_1p5()
-            .rounded(px(6.))
             .cursor_pointer()
-            .when(active, |d| {
-                d.bg(t.colors.list_active)
-                    .text_color(t.colors.foreground)
-                    .font_weight(FontWeight::MEDIUM)
-            })
-            .when(!active, |d| {
-                d.text_color(muted).child(hover_fill(t.colors.list_hover, px(6.)))
-            })
-            .child(
-                Icon::new(if busy {
-                    IconName::LoaderCircle
-                } else {
-                    IconName::FolderGit2
-                })
-                .size(px(13.))
-                .text_color(muted),
-            )
-            .child(div().flex_1().min_w_0().truncate().child(tab.repo.name.clone()))
+            .when(dragged, |d| d.invisible())
+            .when(!active, |d| d.child(hover_fill(t.colors.list_hover, px(6.))))
+            .children(tab_label(name, tab.busy, t.colors.muted_foreground))
             .child(
                 div()
                     .flex_none()
@@ -352,10 +423,31 @@ impl Workspace {
                 gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
             })
             .on_click(cx.listener(move |this, _, window, cx| this.activate(ix, window, cx)))
+            // A drag moves the tab, not the window: the title bar moves the
+            // window on a drag that starts in it.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down(
                 MouseButton::Middle,
                 cx.listener(move |this, _, window, cx| this.close(ix, window, cx)),
             )
+            .on_drag(drag, move |drag, grab, _, cx| {
+                let (start, strip) = this.update(cx, |this, cx| {
+                    this.dragged = Some((root.clone(), grab.x));
+                    cx.notify();
+                    let tabs = &this.tab_bounds;
+                    let strip = match (tabs.first(), tabs.last()) {
+                        (Some(first), Some(last)) => (first.left(), last.right()),
+                        _ => Default::default(),
+                    };
+                    (tabs.get(ix).copied().unwrap_or_default(), strip)
+                });
+                cx.new(|_| DraggedTab {
+                    grab,
+                    start,
+                    strip,
+                    ..drag.clone()
+                })
+            })
             .into_any_element()
     }
 
@@ -494,8 +586,36 @@ impl Workspace {
     }
 }
 
-/// The tab to show after closing tab `closed` of `len + 1` tabs, while tab
-/// `active` was shown. The tab to the right takes the closed tab's place.
+/// The box of a tab, filled while the tab is shown.
+fn tab_frame(filled: bool, cx: &App) -> Div {
+    let t = cx.theme();
+    h_flex()
+        .h(px(26.))
+        .pl_2p5()
+        .pr_1()
+        .gap_1p5()
+        .rounded(px(6.))
+        .when(filled, |d| {
+            d.bg(t.colors.list_active)
+                .text_color(t.colors.foreground)
+                .font_weight(FontWeight::MEDIUM)
+        })
+        .when(!filled, |d| d.text_color(t.colors.muted_foreground))
+}
+
+/// A tab's icon and name. A spinner is the icon while a git operation runs.
+fn tab_label(name: SharedString, busy: bool, muted: Hsla) -> [AnyElement; 2] {
+    let icon = if busy {
+        IconName::LoaderCircle
+    } else {
+        IconName::FolderGit2
+    };
+    [
+        Icon::new(icon).size(px(13.)).text_color(muted).into_any_element(),
+        div().flex_1().min_w_0().truncate().child(name).into_any_element(),
+    ]
+}
+
 /// A toast with its icon centered on the first line of the message.
 /// gpui-kit puts the icon of `Notification::success` 18 px from the top,
 /// which is below the line when the interface size is not 16 px.
@@ -526,6 +646,8 @@ fn toast(ok: Option<bool>, msg: String) -> Notification {
     })
 }
 
+/// The tab to show after closing tab `closed` of `len + 1` tabs, while tab
+/// `active` was shown. The tab to the right takes the closed tab's place.
 fn shown_after_close(active: usize, closed: usize, len: usize) -> Option<usize> {
     if len == 0 {
         None
@@ -536,10 +658,41 @@ fn shown_after_close(active: usize, closed: usize, len: usize) -> Option<usize> 
     }
 }
 
+/// The new place of tab `ix` after tab `from` moves to `to`.
+fn index_after_move(ix: usize, from: usize, to: usize) -> usize {
+    if ix == from {
+        to
+    } else if from < ix && ix <= to {
+        ix - 1
+    } else if to <= ix && ix < from {
+        ix + 1
+    } else {
+        ix
+    }
+}
+
+/// The tab at `x`, of tabs with these bounds: the first or last tab past
+/// the ends, and `None` in the gap between two tabs.
+fn slot_at(tabs: &[Bounds<Pixels>], x: Pixels) -> Option<usize> {
+    let (first, last) = (tabs.first()?, tabs.last()?);
+    if x < first.left() {
+        Some(0)
+    } else if x >= last.right() {
+        Some(tabs.len() - 1)
+    } else {
+        tabs.iter().position(|b| b.left() <= x && x < b.right())
+    }
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.show_toasts(window, cx);
         self.persist_session(window, cx);
+        // The window draws a frame when a drag ends, so the dragged tab
+        // shows again.
+        if !cx.has_active_drag() {
+            self.dragged = None;
+        }
         let (bg, fg) = (cx.theme().colors.background, cx.theme().colors.foreground);
         let body = match self.active_app() {
             // Not cached: GPUI renders every cached view in a cached view
@@ -573,7 +726,31 @@ impl Render for Workspace {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: that brings in GPUI's `test` macro.
-    use super::shown_after_close;
+    use super::{index_after_move, shown_after_close, slot_at};
+    use gpui_kit::{Bounds, point, px, size};
+
+    #[test]
+    fn moving_a_tab_shifts_the_tabs_between() {
+        // Tab 1 moves to 3: tabs 2 and 3 take a step to the left.
+        let moved: Vec<usize> = (0..5).map(|ix| index_after_move(ix, 1, 3)).collect();
+        assert_eq!(moved, [0, 3, 1, 2, 4]);
+        // Tab 3 moves to 1: tabs 1 and 2 take a step to the right.
+        let moved: Vec<usize> = (0..5).map(|ix| index_after_move(ix, 3, 1)).collect();
+        assert_eq!(moved, [0, 2, 3, 1, 4]);
+    }
+
+    #[test]
+    fn a_point_finds_the_tab_under_it() {
+        // Tabs 100 px wide with 4 px between them, from x = 10.
+        let tab = |i: f32| Bounds::new(point(px(10. + 104. * i), px(0.)), size(px(100.), px(26.)));
+        let tabs = [tab(0.), tab(1.), tab(2.)];
+        assert_eq!(slot_at(&tabs, px(0.)), Some(0), "left of the tabs");
+        assert_eq!(slot_at(&tabs, px(60.)), Some(0));
+        assert_eq!(slot_at(&tabs, px(112.)), None, "between two tabs");
+        assert_eq!(slot_at(&tabs, px(114.)), Some(1));
+        assert_eq!(slot_at(&tabs, px(500.)), Some(2), "right of the tabs");
+        assert_eq!(slot_at(&[], px(0.)), None, "no tabs");
+    }
 
     #[test]
     fn closing_keeps_the_shown_tab_or_takes_its_neighbour() {
