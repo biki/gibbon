@@ -4,6 +4,7 @@
 //! checked-out branch already has are dimmed, earlier picks are marked, and
 //! the rest can be picked into the current branch without leaving it.
 
+use std::cell::RefCell;
 use std::ops::Range;
 
 use gpui_kit::component::menu::ContextMenuExt as _;
@@ -13,23 +14,92 @@ use super::*;
 
 const ROW_H: f32 = 30.;
 
+/// What the commit list keeps between renders (see `pane::Memo`).
+struct LogMemo {
+    /// "3m ago" by commit index, made when the row is first shown.
+    times: RefCell<HashMap<usize, SharedString>>,
+    /// Commits of the browsed branch that HEAD does not have, and that were
+    /// picked before.
+    available: usize,
+    picked: usize,
+}
+
+impl LogMemo {
+    fn time(&self, ix: usize, ts: i64) -> SharedString {
+        self.times
+            .borrow_mut()
+            .entry(ix)
+            .or_insert_with(|| fmt_time(ts).into())
+            .clone()
+    }
+}
+
+/// What the commit detail keeps between renders.
+struct CommitMemo {
+    subject: SharedString,
+    /// The body, joined to the width of the pane.
+    body: SharedString,
+    rows: Rc<Vec<FileRow>>,
+}
+
 impl GitApp {
-    pub(super) fn render_history(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// The commit list above, the shown commit below: its files beside its
+    /// diff. Each is a pane.
+    pub(super) fn render_history(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (border, muted) = (cx.theme().colors.border, cx.theme().colors.muted_foreground);
+        let detail = if self.detail.is_some() {
+            h_resizable("detail-split")
+                .child(
+                    resizable_panel()
+                        .size(px(380.))
+                        .size_range(px(260.)..px(800.))
+                        .child(
+                            div()
+                                .size_full()
+                                .border_t_1()
+                                .border_r_1()
+                                .border_color(border)
+                                .child(self.pane(Part::Commit, cx)),
+                        ),
+                )
+                .child(
+                    resizable_panel().child(
+                        div()
+                            .size_full()
+                            .border_t_1()
+                            .border_color(border)
+                            .child(self.pane(Part::Diff, cx)),
+                    ),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .border_t_1()
+                .border_color(border)
+                .text_color(muted)
+                .child(if self.cursor.is_some() {
+                    "Loading commit…"
+                } else {
+                    "Select a commit."
+                })
+                .into_any_element()
+        };
         v_resizable("history-split")
             .child(
                 resizable_panel()
                     .size(px(430.))
                     .size_range(px(160.)..px(4000.))
-                    .child(self.render_log(window, cx)),
+                    .child(self.pane(Part::Log, cx)),
             )
-            .child(resizable_panel().child(self.render_commit_detail(cx)))
+            .child(resizable_panel().child(detail))
     }
 
-    fn render_log(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_log(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> impl IntoElement {
+        let memo = keep(memo, || self.log_memo());
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         let n = self.commits.len();
@@ -51,7 +121,7 @@ impl GitApp {
             .child(div().w(px(64.)).child("Commit"));
         v_flex()
             .size_full()
-            .when_some(self.render_pick_banner(cx), |d, b| d.child(b))
+            .when_some(self.render_pick_banner(&memo, cx), |d, b| d.child(b))
             .child(header)
             .child(
                 div()
@@ -78,7 +148,7 @@ impl GitApp {
                                 n,
                                 cx.processor(move |this, range: Range<usize>, _window, cx| {
                                     range
-                                        .map(|i| this.render_commit_row(i, graph_w, cx))
+                                        .map(|i| this.render_commit_row(i, graph_w, &memo, cx))
                                         .collect::<Vec<_>>()
                                 }),
                             )
@@ -89,8 +159,17 @@ impl GitApp {
             )
     }
 
+    fn log_memo(&self) -> LogMemo {
+        let count = |state| self.picks.values().filter(|s| **s == state).count();
+        LogMemo {
+            times: RefCell::default(),
+            available: count(PickState::Pickable),
+            picked: count(PickState::AlreadyPicked),
+        }
+    }
+
     /// Shown while browsing a branch that is not checked out.
-    fn render_pick_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn render_pick_banner(&self, memo: &LogMemo, cx: &mut Context<Self>) -> Option<AnyElement> {
         let target = self.foreign_target()?;
         let t = cx.theme();
         let pr = crate::github::number_of(target)
@@ -105,16 +184,7 @@ impl GitApp {
             .unwrap_or(&short)
             .to_string();
         let head = self.head_name();
-        let available = self
-            .picks
-            .values()
-            .filter(|s| **s == PickState::Pickable)
-            .count();
-        let picked = self
-            .picks
-            .values()
-            .filter(|s| **s == PickState::AlreadyPicked)
-            .count();
+        let (available, picked) = (memo.available, memo.picked);
         let chosen = self.pickable_selection().len();
         let accent = t.colors.primary;
         let text = if !self.refs_loaded || self.log_loading {
@@ -187,7 +257,13 @@ impl GitApp {
         )
     }
 
-    fn render_commit_row(&self, ix: usize, graph_w: f32, cx: &mut Context<Self>) -> AnyElement {
+    fn render_commit_row(
+        &self,
+        ix: usize,
+        graph_w: f32,
+        memo: &LogMemo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         let c = &self.commits[ix];
@@ -281,7 +357,7 @@ impl GitApp {
                     .truncate()
                     .text_color(muted)
                     .when(in_head, |d| d.opacity(0.45))
-                    .child(fmt_time(c.time)),
+                    .child(memo.time(ix, c.time)),
             )
             .child(
                 div()
@@ -394,29 +470,24 @@ impl GitApp {
         cx.notify();
     }
 
-    fn render_commit_detail(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// The shown commit: message, author, parents and files.
+    pub(super) fn render_commit(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+        let Some(d) = self.detail.clone() else {
+            return div().into_any_element();
+        };
+        let memo = keep(memo, || {
+            let (subject, body) = match d.message.split_once('\n') {
+                Some((s, b)) => (s.to_string(), reflow(b).trim().to_string()),
+                None => (d.message.clone(), String::new()),
+            };
+            CommitMemo {
+                subject: subject.into(),
+                body: body.into(),
+                rows: Rc::new(self.file_rows("commit", &files::paths(&d.files), cx)),
+            }
+        });
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
-        let Some(d) = self.detail.clone() else {
-            return div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .border_t_1()
-                .border_color(t.colors.border)
-                .text_color(muted)
-                .child(if self.cursor.is_some() {
-                    "Loading commit…"
-                } else {
-                    "Select a commit."
-                })
-                .into_any_element();
-        };
-        let (subject, body) = match d.message.split_once('\n') {
-            Some((s, b)) => (s.to_string(), reflow(b).trim().to_string()),
-            None => (d.message.clone(), String::new()),
-        };
         let multi = self.selected.len() > 1;
         let info = v_flex()
             .flex_none()
@@ -436,16 +507,16 @@ impl GitApp {
                 div()
                     .text_size(px(14.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(subject),
+                    .child(memo.subject.clone()),
             )
-            .when(!body.is_empty(), |el| {
+            .when(!memo.body.is_empty(), |el| {
                 el.child(
                     div()
                         .id("commit-body")
                         .max_h(px(120.))
                         .overflow_y_scroll()
                         .text_color(muted)
-                        .child(body),
+                        .child(memo.body.clone()),
                 )
             })
             .child(
@@ -499,7 +570,7 @@ impl GitApp {
                     }),
             );
         let files_header = files::files_bar(&d.files, cx);
-        let rows = Rc::new(self.file_rows("commit", &files::paths(&d.files), cx));
+        let rows = memo.rows.clone();
         let files = d.clone();
         let file_list = uniform_list(
             "detail-files",
@@ -526,37 +597,11 @@ impl GitApp {
         )
         .flex_1()
         .px_1p5();
-        let file = d.files.get(self.detail_file).cloned().map(Rc::new);
-        let styles = self
-            .detail_styles
-            .as_ref()
-            .filter(|(sha, _)| *sha == d.sha)
-            .and_then(|(_, all)| all.get(self.detail_file).cloned());
-        h_resizable("detail-split")
-            .child(
-                resizable_panel()
-                    .size(px(380.))
-                    .size_range(px(260.)..px(800.))
-                    .child(
-                        v_flex()
-                            .size_full()
-                            .border_t_1()
-                            .border_r_1()
-                            .border_color(t.colors.border)
-                            .child(info)
-                            .child(files_header)
-                            .child(file_list),
-                    ),
-            )
-            .child(
-                resizable_panel().child(
-                    div()
-                        .size_full()
-                        .border_t_1()
-                        .border_color(t.colors.border)
-                        .child(self.render_diff(file, styles, DiffCtx::Commit, "commit-diff", cx)),
-                ),
-            )
+        v_flex()
+            .size_full()
+            .child(info)
+            .child(files_header)
+            .child(file_list)
             .into_any_element()
     }
 }

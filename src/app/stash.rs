@@ -186,7 +186,7 @@ impl GitApp {
                     .disabled(busy)
                     .on_click(cx.listener(move |this, _, _, cx| this.stash_op(index, true, cx))),
             );
-        let Some(d) = self.stash_detail.clone() else {
+        if self.stash_detail.is_none() {
             return v_flex()
                 .size_full()
                 .child(header)
@@ -200,8 +200,36 @@ impl GitApp {
                         .child("Loading stash…"),
                 )
                 .into_any_element();
+        }
+        let border = cx.theme().colors.border;
+        v_flex()
+            .size_full()
+            .child(header)
+            .child(
+                h_resizable("stash-split")
+                    .child(
+                        resizable_panel()
+                            .size(px(340.))
+                            .size_range(px(220.)..px(700.))
+                            .child(
+                                div()
+                                    .size_full()
+                                    .border_r_1()
+                                    .border_color(border)
+                                    .child(self.pane(Part::StashFiles, cx)),
+                            ),
+                    )
+                    .child(resizable_panel().child(self.pane(Part::Diff, cx))),
+            )
+            .into_any_element()
+    }
+
+    /// The files of the shown stash.
+    pub(super) fn render_stash_files(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+        let Some(d) = self.stash_detail.clone() else {
+            return div().into_any_element();
         };
-        let rows = Rc::new(self.file_rows("stash", &files::paths(&d.files), cx));
+        let rows = keep(memo, || self.file_rows("stash", &files::paths(&d.files), cx));
         let files = d.clone();
         let list = uniform_list(
             "stash-files",
@@ -229,39 +257,17 @@ impl GitApp {
         .flex_1()
         .px_1p5()
         .py_1();
-        let file = d.files.get(self.stash_file).cloned().map(Rc::new);
-        let styles = self
-            .stash_styles
-            .as_ref()
-            .and_then(|all| all.get(self.stash_file).cloned());
-        let diff = self.render_diff(file, styles, DiffCtx::Commit, "stash-diff", cx);
         let border = cx.theme().colors.border;
         v_flex()
             .size_full()
-            .child(header)
             .child(
-                h_resizable("stash-split")
-                    .child(
-                        resizable_panel()
-                            .size(px(340.))
-                            .size_range(px(220.)..px(700.))
-                            .child(
-                                v_flex()
-                                    .size_full()
-                                    .border_r_1()
-                                    .border_color(border)
-                                    .child(
-                                        // As tall as the diff header beside it.
-                                        files::files_bar(&d.files, cx)
-                                            .h(px(36.))
-                                            .border_b_1()
-                                            .border_color(border),
-                                    )
-                                    .child(list),
-                            ),
-                    )
-                    .child(resizable_panel().child(diff)),
+                // As tall as the diff header beside it.
+                files::files_bar(&d.files, cx)
+                    .h(px(36.))
+                    .border_b_1()
+                    .border_color(border),
             )
+            .child(list)
             .into_any_element()
     }
 }

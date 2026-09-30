@@ -61,13 +61,21 @@ impl GitApp {
         })
     }
 
-    pub(super) fn render_changes(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// The changed files and the commit box beside the diff. Each is a pane.
+    pub(super) fn render_changes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        h_resizable("changes-split")
+            .child(
+                resizable_panel()
+                    .size(px(380.))
+                    .size_range(px(260.)..px(700.))
+                    .child(self.pane(Part::Changes, cx)),
+            )
+            .child(resizable_panel().child(self.pane(Part::Diff, cx)))
+    }
+
+    pub(super) fn render_change_list(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = keep(memo, || self.change_rows(cx));
         let (muted, border) = (cx.theme().colors.muted_foreground, cx.theme().colors.border);
-        let rows = Rc::new(self.change_rows(cx));
         let n = rows.len();
         let staged = self.status.iter().filter(|e| e.staged.is_some()).count();
         let list = if n == 0 {
@@ -122,34 +130,14 @@ impl GitApp {
                     )
                     .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx))),
             );
-        let ctx = match &self.change_sel {
-            Some((_, true)) => DiffCtx::Staged,
-            _ => DiffCtx::Unstaged,
-        };
-        let diff = self.render_diff(
-            self.change_diff.clone(),
-            self.change_styles.clone(),
-            ctx,
-            "change-diff",
-            cx,
-        );
-        h_resizable("changes-split")
-            .child(
-                resizable_panel()
-                    .size(px(380.))
-                    .size_range(px(260.)..px(700.))
-                    .child(
-                        v_flex()
-                            .size_full()
-                            .border_r_1()
-                            .border_color(border)
-                            .when(n > 0, |d| d.child(self.render_changes_bar(cx)))
-                            .when_some(self.paused, |d, p| d.child(self.render_paused_banner(p, cx)))
-                            .child(list)
-                            .child(commit_box),
-                    ),
-            )
-            .child(resizable_panel().child(diff))
+        v_flex()
+            .size_full()
+            .border_r_1()
+            .border_color(border)
+            .when(n > 0, |d| d.child(self.render_changes_bar(cx)))
+            .when_some(self.paused, |d, p| d.child(self.render_paused_banner(p, cx)))
+            .child(list)
+            .child(commit_box)
     }
 
     /// As tall as the diff header beside it.

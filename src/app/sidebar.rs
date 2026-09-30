@@ -96,13 +96,9 @@ impl GitApp {
         rows
     }
 
-    pub(super) fn render_sidebar(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    pub(super) fn render_sidebar(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = keep(memo, || self.sidebar_rows(cx));
         let t = cx.theme();
-        let rows = Rc::new(self.sidebar_rows(cx));
         let n = rows.len();
         v_flex()
             .size_full()

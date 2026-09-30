@@ -25,9 +25,9 @@ use crate::git::{
 };
 use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
-use diff::DiffCtx;
 use files::FileRow;
 use hover::hover_fill;
+use pane::{Memo, Part, keep};
 use crate::{
     CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowAllBranches,
     ShowChanges, ShowHistory,
@@ -46,6 +46,7 @@ mod diff;
 mod files;
 mod history;
 mod hover;
+mod pane;
 mod sidebar;
 mod stash;
 mod workspace;
@@ -126,6 +127,8 @@ pub struct GitApp {
     log_epoch: u64,
     detail_epoch: u64,
     diff_epoch: u64,
+    /// The parts of the tab in their own views (see `pane`).
+    panes: HashMap<Part, Entity<pane::Pane>>,
     _subs: Vec<Subscription>,
 }
 
@@ -198,6 +201,7 @@ impl GitApp {
             log_epoch: 0,
             detail_epoch: 0,
             diff_epoch: 0,
+            panes: HashMap::new(),
             _subs: subs,
         }
     }
@@ -1232,11 +1236,11 @@ impl Render for GitApp {
                     resizable_panel()
                         .size(px(250.))
                         .size_range(px(190.)..px(420.))
-                        .child(self.render_sidebar(window, cx)),
+                        .child(self.pane(Part::Sidebar, cx)),
                 )
                 .child(resizable_panel().child(match view {
-                    View::Changes => self.render_changes(window, cx).into_any_element(),
-                    View::History => self.render_history(window, cx).into_any_element(),
+                    View::Changes => self.render_changes(cx).into_any_element(),
+                    View::History => self.render_history(cx).into_any_element(),
                     View::Stash(i) => self.render_stash(i, cx),
                     View::Rebase => self.render_rebase(cx),
                 }))

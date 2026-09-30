@@ -516,12 +516,11 @@ impl Render for Workspace {
         self.persist_session(window, cx);
         let (bg, fg) = (cx.theme().colors.background, cx.theme().colors.foreground);
         let body = match self.active_app() {
-            // Cached: when only the window changes (the tab strip, a toast),
-            // the tab keeps its last frame. It renders again when it notifies.
-            Some(app) => app
-                .clone()
-                .cached(StyleRefinement::default().size_full())
-                .into_any_element(),
+            // Not cached: GPUI renders every cached view in a cached view
+            // that renders again. The parts of the tab are cached views (see
+            // `pane`), so when only the window changes (the tab strip, a
+            // toast), the tab renders only the frame around them.
+            Some(app) => app.clone().into_any_element(),
             None => self.render_welcome(cx).into_any_element(),
         };
         v_flex()

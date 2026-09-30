@@ -34,6 +34,25 @@ pub enum DiffCtx {
     Staged,
 }
 
+/// The file that a diff shows, shared without a copy: a working-tree
+/// file, or a file of a commit or a stash.
+#[derive(Clone)]
+pub(super) enum DiffFile {
+    Own(Rc<FileDiff>),
+    Of(Rc<CommitDetail>, usize),
+}
+
+impl std::ops::Deref for DiffFile {
+    type Target = FileDiff;
+
+    fn deref(&self) -> &FileDiff {
+        match self {
+            DiffFile::Own(file) => file,
+            DiffFile::Of(detail, ix) => &detail.files[*ix],
+        }
+    }
+}
+
 /// One row of the split view.
 #[derive(Clone, Copy)]
 enum SplitRow {
@@ -89,12 +108,54 @@ pub(super) fn hunk_lines(file: &FileDiff, hunk: usize) -> HashSet<usize> {
 }
 
 impl GitApp {
-    pub(super) fn render_diff(
+    /// The diff of the shown view: the selected file of the commit, of the
+    /// stash, or of the working tree.
+    pub(super) fn render_shown_diff(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+        let (file, styles, ctx, id) = match self.view {
+            View::History => (
+                self.detail
+                    .clone()
+                    .filter(|d| self.detail_file < d.files.len())
+                    .map(|d| DiffFile::Of(d, self.detail_file)),
+                self.detail
+                    .as_ref()
+                    .and_then(|d| self.detail_styles.as_ref().filter(|(sha, _)| *sha == d.sha))
+                    .and_then(|(_, all)| all.get(self.detail_file).cloned()),
+                DiffCtx::Commit,
+                "commit-diff",
+            ),
+            View::Stash(_) => (
+                self.stash_detail
+                    .clone()
+                    .filter(|d| self.stash_file < d.files.len())
+                    .map(|d| DiffFile::Of(d, self.stash_file)),
+                self.stash_styles
+                    .as_ref()
+                    .and_then(|all| all.get(self.stash_file).cloned()),
+                DiffCtx::Commit,
+                "stash-diff",
+            ),
+            View::Changes => (
+                self.change_diff.clone().map(DiffFile::Own),
+                self.change_styles.clone(),
+                match &self.change_sel {
+                    Some((_, true)) => DiffCtx::Staged,
+                    _ => DiffCtx::Unstaged,
+                },
+                "change-diff",
+            ),
+            View::Rebase => return div().into_any_element(),
+        };
+        self.render_diff(file, styles, ctx, id, memo, cx)
+    }
+
+    fn render_diff(
         &self,
-        file: Option<Rc<FileDiff>>,
+        file: Option<DiffFile>,
         styles: Option<Rc<DiffStyles>>,
         ctx: DiffCtx,
         id: &'static str,
+        memo: &mut Memo,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let t = cx.theme();
@@ -171,7 +232,7 @@ impl GitApp {
         } else if file.lines.is_empty() {
             note("No content changes.").into_any_element()
         } else if mode == DiffMode::Split {
-            let rows = Rc::new(split_rows(&file));
+            let rows = keep(memo, || split_rows(&file));
             let (f, st) = (file.clone(), styles.clone());
             uniform_list(
                 id,
