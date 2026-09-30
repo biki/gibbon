@@ -1,13 +1,16 @@
-//! Hover highlights that fade in and out. A `.hover()` style in GPUI
-//! switches at once, so rows paint their highlight with `hover_fill`.
+//! Hover highlights that show at once and fade out. A `.hover()` style in
+//! GPUI switches at once both ways, so rows paint their highlight with
+//! `hover_fill`.
 
 use std::time::Duration;
 
-use gpui_kit::base::motion::{self, MotionStatus, Transition};
+use gpui_kit::base::motion::{self, Transition};
 use gpui_kit::*;
 
-/// How long a highlight takes to fade in or out.
-const FADE: Duration = Duration::from_millis(150);
+/// How long a highlight takes to fade out. It shows without a fade: a fade
+/// in makes the pointer feel slow, and each frame of a fade renders the
+/// view again.
+const FADE_OUT: Duration = Duration::from_millis(120);
 
 /// A highlight in `color` under the content of a row, shown while the
 /// pointer is on the row. Add it as the first child of a row with an id:
@@ -24,19 +27,22 @@ pub(super) fn hover_fill(color: Hsla, radius: Pixels) -> impl IntoElement {
                     cx.notify(view);
                 }
             });
-            let target = if hovered { 1. } else { 0. };
-            let fade = motion::transition_with_status(
+            let (target, fade) = if hovered {
+                (1., Duration::ZERO)
+            } else {
+                (0., FADE_OUT)
+            };
+            // While it fades, the transition asks for the next frame.
+            let value = motion::transition_with_status(
                 "hover-fill",
                 target,
-                Transition::new(FADE),
+                Transition::new(fade),
                 window,
                 cx,
-            );
-            if matches!(fade.status, MotionStatus::Delayed | MotionStatus::Running) {
-                window.request_animation_frame();
-            }
-            if fade.value > 0. {
-                window.paint_quad(fill(bounds, color.opacity(fade.value)).corner_radii(radius));
+            )
+            .value;
+            if value > 0. {
+                window.paint_quad(fill(bounds, color.opacity(value)).corner_radii(radius));
             }
         },
     )
