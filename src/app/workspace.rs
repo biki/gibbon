@@ -157,6 +157,12 @@ impl Workspace {
                 app
             }
         };
+        // Only the shown tab reloads on changes on disk.
+        for (i, tab) in self.tabs.iter().enumerate() {
+            if let Some(app) = &tab.app {
+                app.update(cx, |app, cx| app.set_hidden(i != ix, cx));
+            }
+        }
         app.read(cx).focus_handle().focus(window, cx);
         cx.notify();
     }

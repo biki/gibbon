@@ -118,6 +118,10 @@ pub struct GitApp {
     check_inspector: bool,
     _watcher: Option<crate::watch::RepoWatcher>,
     _watch_task: Option<Task<()>>,
+    /// The tab is not shown: changes on disk wait in `hidden_change`.
+    hidden: bool,
+    /// What changed on disk while the tab was hidden.
+    hidden_change: Option<crate::watch::Change>,
     log_epoch: u64,
     detail_epoch: u64,
     diff_epoch: u64,
@@ -189,6 +193,8 @@ impl GitApp {
             check_inspector: false,
             _watcher: None,
             _watch_task: None,
+            hidden: false,
+            hidden_change: None,
             log_epoch: 0,
             detail_epoch: 0,
             diff_epoch: 0,
@@ -280,7 +286,6 @@ impl GitApp {
     /// Reload on changes outside the app: status for file edits, everything
     /// for ref moves. Bursts (saves, checkouts, builds) settle for 300 ms.
     fn start_watcher(&mut self, cx: &mut Context<Self>) {
-        use crate::watch::Change;
         use futures::StreamExt as _;
         self._watcher = None;
         self._watch_task = None;
@@ -307,21 +312,36 @@ impl GitApp {
                 while let Ok(more) = rx.try_recv() {
                     change = change.max(more);
                 }
-                let alive = this.update(cx, |this, cx| {
-                    // A running operation reloads when it ends.
-                    if this.busy.is_some() {
-                        return;
-                    }
-                    match change {
-                        Change::Refs => this.reload(cx),
-                        Change::Files => this.reload_status(cx),
-                    }
-                });
-                if alive.is_err() {
+                if this.update(cx, |this, cx| this.disk_changed(change, cx)).is_err() {
                     break;
                 }
             }
         }));
+    }
+
+    /// Reload what `change` touched. A hidden tab reloads when it is shown.
+    fn disk_changed(&mut self, change: crate::watch::Change, cx: &mut Context<Self>) {
+        use crate::watch::Change;
+        // A running operation reloads when it ends.
+        if self.busy.is_some() {
+            return;
+        }
+        if self.hidden {
+            self.hidden_change = self.hidden_change.max(Some(change));
+            return;
+        }
+        match change {
+            Change::Refs => self.reload(cx),
+            Change::Files => self.reload_status(cx),
+        }
+    }
+
+    /// Hide or show this tab. Showing it reloads what changed while hidden.
+    pub(super) fn set_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
+        self.hidden = hidden;
+        if !hidden && let Some(change) = self.hidden_change.take() {
+            self.disk_changed(change, cx);
+        }
     }
 
     /// Reload only the working-tree status and the shown file diff.
