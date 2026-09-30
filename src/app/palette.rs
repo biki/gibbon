@@ -51,11 +51,9 @@ impl GitApp {
             }
         }
         let current = self.repo.as_ref().map(|r| r.root.clone());
-        let repos: Vec<PathBuf> = self
-            .recent
-            .iter()
-            .filter(|p| Some(*p) != current.as_ref())
-            .cloned()
+        let repos: Vec<PathBuf> = crate::recent::load()
+            .into_iter()
+            .filter(|p| Some(p) != current.as_ref())
             .collect();
         if !repos.is_empty() {
             sections.push(Section::Repos(repos));
@@ -98,7 +96,7 @@ impl GitApp {
                         }
                         Section::Repos(list) => {
                             if let Some(p) = list.get(row) {
-                                app.open(p.clone(), cx)
+                                cx.emit(AppEvent::Open(p.clone()))
                             }
                         }
                     });

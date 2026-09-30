@@ -32,6 +32,13 @@ behind the Zed editor.
 
 ## Features
 
+### Tabs
+
+- Each open repository has a tab in the title bar. Opening a repository adds
+  a tab, or shows its tab if it is open already.
+- **+** lists the recent repositories that have no tab.
+- Close a tab with its **×**, a middle-click or <kbd>⌘</kbd><kbd>W</kbd>.
+
 ### History and graph
 
 - A commit graph with branch, remote and tag badges, authors and dates.
@@ -94,8 +101,8 @@ Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
   Source Code Pro, DM Mono, Martian Mono and JetBrains Mono.
 - Text sizes and the default diff view.
 
-Gibbon remembers its window and reopens each repository where you left it:
-the same view, branch, commit and file.
+Gibbon remembers its window and its tabs, and reopens each repository where
+you left it: the same view, branch, commit and file.
 
 ## Getting started
 
@@ -133,7 +140,9 @@ keychain has one, and ad hoc otherwise.
 | --- | --- |
 | Command palette | <kbd>⌘</kbd><kbd>K</kbd> |
 | Settings | <kbd>⌘</kbd><kbd>,</kbd> |
-| Open repository | <kbd>⌘</kbd><kbd>O</kbd> |
+| Open repository (in a new tab) | <kbd>⌘</kbd><kbd>O</kbd> |
+| Close tab | <kbd>⌘</kbd><kbd>W</kbd> |
+| Previous / next tab | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>[</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>]</kbd>, or <kbd>⌃</kbd><kbd>⇧</kbd><kbd>⇥</kbd> / <kbd>⌃</kbd><kbd>⇥</kbd> |
 | Changes / History / All branches | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> |
 | Refresh | <kbd>⌘</kbd><kbd>R</kbd> |
 | Commit | <kbd>⌘</kbd><kbd>↵</kbd> |

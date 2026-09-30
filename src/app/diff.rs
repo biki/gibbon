@@ -113,7 +113,11 @@ impl GitApp {
             Some(old) if file.change == FileChange::Renamed => format!("{old} → {}", file.path),
             _ => file.path.clone(),
         };
-        let mode = self.diff_mode;
+        let mode = if crate::settings::get(cx).split_diff {
+            DiffMode::Split
+        } else {
+            DiffMode::Unified
+        };
         let header = h_flex()
             .flex_none()
             .h(px(36.))
@@ -142,20 +146,16 @@ impl GitApp {
                     .text_color(t.colors.red)
                     .child(format!("−{}", file.deletions)),
             )
-            .child({
-                let this = cx.entity();
+            .child(
                 segmented(
                     "diff-mode",
                     &[("Unified", DiffMode::Unified), ("Split", DiffMode::Split)],
                     mode,
-                    move |m, _, cx| {
-                        this.update(cx, |app, _| app.diff_mode = m);
-                        crate::settings::update(cx, |s| s.split_diff = m == DiffMode::Split);
-                    },
+                    |m, _, cx| crate::settings::update(cx, |s| s.split_diff = m == DiffMode::Split),
                     cx,
                 )
-                .ml_2()
-            });
+                .ml_2(),
+            );
         let note = |text: &'static str| {
             div()
                 .flex_1()

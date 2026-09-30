@@ -1,5 +1,6 @@
-//! The main window: title bar, sidebar, and the Changes / History views.
-//! Git work runs on the background executor; results land back here.
+//! One repository tab: sidebar, the Changes / History views, status bar.
+//! The window around the tabs is in `workspace`. Git work runs on the
+//! background executor; results land back here.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -24,7 +25,7 @@ use crate::git::{
 };
 use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
-use diff::{DiffCtx, DiffMode};
+use diff::DiffCtx;
 use files::FileRow;
 use crate::{
     CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowAllBranches,
@@ -45,6 +46,9 @@ mod files;
 mod history;
 mod sidebar;
 mod stash;
+mod workspace;
+
+pub use workspace::Workspace;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
@@ -60,7 +64,6 @@ pub struct GitApp {
     focus: FocusHandle,
     list_focus: FocusHandle,
     repo: Option<Repo>,
-    recent: Vec<PathBuf>,
     head: HeadInfo,
     /// Refs and status of the open repository have loaded once.
     refs_loaded: bool,
@@ -95,7 +98,6 @@ pub struct GitApp {
     /// Selected Add / Del lines of `change_diff`.
     line_sel: HashSet<usize>,
     line_anchor: Option<usize>,
-    diff_mode: DiffMode,
     message: Entity<TextareaState>,
     filter: Entity<InputState>,
     /// Enter-to-submit for the open text dialog.
@@ -109,9 +111,6 @@ pub struct GitApp {
     toasts: Vec<(Option<bool>, String)>,
     log_scroll: UniformListScrollHandle,
     side_scroll: UniformListScrollHandle,
-    /// The last saved session, and the pending save.
-    last_session: Option<(Option<crate::session::Place>, Option<crate::session::RepoState>)>,
-    save_task: Option<Task<()>>,
     /// A restored selection, applied when the log or the commit loads.
     pending_commit: Option<String>,
     pending_file: Option<usize>,
@@ -144,7 +143,6 @@ impl GitApp {
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
             repo: None,
-            recent: crate::recent::load(),
             head: HeadInfo::default(),
             refs_loaded: false,
             branches: vec![],
@@ -176,11 +174,6 @@ impl GitApp {
             change_styles: None,
             line_sel: HashSet::new(),
             line_anchor: None,
-            diff_mode: if crate::settings::get(cx).split_diff {
-                DiffMode::Split
-            } else {
-                DiffMode::Unified
-            },
             message,
             filter,
             prompt_sub: None,
@@ -191,8 +184,6 @@ impl GitApp {
             toasts: vec![],
             log_scroll: UniformListScrollHandle::new(),
             side_scroll: UniformListScrollHandle::new(),
-            last_session: None,
-            save_task: None,
             pending_commit: None,
             pending_file: None,
             check_inspector: false,
@@ -216,57 +207,14 @@ impl GitApp {
     // -----------------------------------------------------------------------
     // Loading
 
-    pub fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        match Repo::discover(&path) {
-            Ok(repo) => {
-                self.recent = crate::recent::push(&repo.root);
-                self.repo = Some(repo);
-                self.head = HeadInfo::default();
-                self.refs_loaded = false;
-                self.branches.clear();
-                self.status.clear();
-                self.stashes.clear();
-                self.prs.clear();
-                self.stash_detail = None;
-                self.rebase = None;
-                self.target = LogTarget::Head;
-                self.view = View::History;
-                self.commits = Rc::new(vec![]);
-                self.selected.clear();
-                self.cursor = None;
-                self.anchor = None;
-                self.detail = None;
-                self.change_sel = None;
-                self.change_diff = None;
-                self.pending_commit = None;
-                self.pending_file = None;
-                self.restore_session();
-                self.start_watcher(cx);
-                self.reload(cx);
-                self.load_prs(cx);
-            }
-            Err(e) => self.toast(Some(false), format!("{}: {e}", path.display())),
-        }
+    /// Show `repo`, where it was left. Each tab calls this once.
+    pub(super) fn open_repo(&mut self, repo: Repo, cx: &mut Context<Self>) {
+        self.repo = Some(repo);
+        self.restore_session();
+        self.start_watcher(cx);
+        self.reload(cx);
+        self.load_prs(cx);
         cx.notify();
-    }
-
-    fn prompt_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Open Repository".into()),
-        });
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(paths))) = paths.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| this.open(path, cx));
-        })
-        .detach();
     }
 
     /// Reload refs and status, then the log.
@@ -861,32 +809,6 @@ impl GitApp {
         self.change_sel = s.change;
     }
 
-    /// Save the session 400 ms after it last changed.
-    fn persist_session(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let b = window.window_bounds().get_bounds();
-        let place = Some(crate::session::Place {
-            x: f32::from(b.origin.x).round() as i32,
-            y: f32::from(b.origin.y).round() as i32,
-            w: f32::from(b.size.width).round() as i32,
-            h: f32::from(b.size.height).round() as i32,
-        });
-        let state = self.repo_state();
-        let snapshot = (place, state.clone());
-        if self.last_session.as_ref() == Some(&snapshot) {
-            return;
-        }
-        self.last_session = Some(snapshot);
-        let root = self.repo.as_ref().map(|r| r.root.clone());
-        self.save_task = Some(cx.spawn(async move |_, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(400))
-                .await;
-            cx.background_executor()
-                .spawn(async move { crate::session::save(place, root.as_deref(), state.as_ref()) })
-                .await;
-        }));
-    }
-
     /// Start state for automated UI checks:
     /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all`,
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
@@ -906,7 +828,8 @@ impl GitApp {
             self.change_sel = Some((f, false));
         }
         if var("GIBBON_DIFF").as_deref() == Some("split") {
-            self.diff_mode = DiffMode::Split;
+            // For this run only: not saved.
+            cx.global_mut::<crate::settings::Settings>().split_diff = true;
         }
         if let Some(sha) = var("GIBBON_REBASE") {
             self.start_rebase(sha, cx);
@@ -1090,48 +1013,12 @@ impl GitApp {
     // -----------------------------------------------------------------------
     // Rendering
 
-    fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The title bar's part for this tab: the branch, what runs, and Fetch,
+    /// Pull and Push.
+    pub(super) fn render_repo_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         let this = cx.entity();
-        let repo_name = self
-            .repo
-            .as_ref()
-            .map(|r| r.name.clone())
-            .unwrap_or_else(|| "No repository".into());
-        let recent = self.recent.clone();
-        let current_root = self.repo.as_ref().map(|r| r.root.clone());
-        let open_this = this.clone();
-        let repo_button = Button::new("title-repo")
-            .ghost()
-            .small()
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .child(Icon::new(IconName::FolderGit2).size(px(14.)).text_color(muted))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(repo_name))
-                    .child(Icon::new(IconName::ChevronDown).size(px(12.)).text_color(muted)),
-            )
-            .dropdown_menu(move |mut menu, _, _| {
-                menu = menu.label("Recent repositories");
-                for path in &recent {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    let (p, this) = (path.clone(), open_this.clone());
-                    menu = menu.item(
-                        PopupMenuItem::new(name)
-                            .checked(current_root.as_ref() == Some(path))
-                            .on_click(move |_, _, cx| {
-                                let p = p.clone();
-                                this.update(cx, |app, cx| app.open(p, cx));
-                            }),
-                    );
-                }
-                menu.separator().menu("Open Repository…", Box::new(OpenRepo))
-            });
-
         let branch_label = self.head_name();
         let locals: Vec<Branch> = self
             .branches
@@ -1183,77 +1070,68 @@ impl GitApp {
         };
         let no_repo = self.repo.is_none();
         let busy = self.busy.clone();
-        TitleBar::new().child(
-            h_flex()
-                .w_full()
-                .h_full()
-                .pr_2()
-                .gap_0p5()
-                .items_center()
-                .child(repo_button)
-                .child(div().text_color(t.colors.border).child("/"))
-                .child(branch_button)
-                .child(div().flex_1())
-                .when_some(busy, |d, b| {
-                    d.child(
+        h_flex()
+            .flex_none()
+            .h_full()
+            .gap_0p5()
+            .items_center()
+            .when_some(busy, |d, b| {
+                d.child(
+                    h_flex()
+                        .gap_1p5()
+                        .mr_2()
+                        .text_size(px(12.))
+                        .text_color(muted)
+                        .child(Icon::new(IconName::LoaderCircle).size(px(13.)).text_color(muted))
+                        .child(b),
+                )
+            })
+            .child(branch_button)
+            .child(div().w(px(1.)).h(px(16.)).mx_1().bg(t.colors.border))
+            .child(
+                Button::new("fetch")
+                    .ghost()
+                    .small()
+                    .disabled(no_repo)
+                    .tooltip("Fetch all remotes  ⇧⌘F")
+                    .child(
                         h_flex()
-                            .gap_1p5()
-                            .mr_2()
-                            .text_size(px(12.))
-                            .text_color(muted)
-                            .child(
-                                Icon::new(IconName::LoaderCircle)
-                                    .size(px(13.))
-                                    .text_color(muted),
-                            )
-                            .child(b),
+                            .gap_1()
+                            .child(Icon::new(IconName::RefreshCw).size(px(14.)))
+                            .child("Fetch"),
                     )
-                })
-                .child(
-                    Button::new("fetch")
-                        .ghost()
-                        .small()
-                        .disabled(no_repo)
-                        .tooltip("Fetch all remotes  ⇧⌘F")
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(Icon::new(IconName::RefreshCw).size(px(14.)))
-                                .child("Fetch"),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.fetch(cx))),
-                )
-                .child(
-                    Button::new("pull")
-                        .ghost()
-                        .small()
-                        .disabled(no_repo)
-                        .tooltip("Pull  ⇧⌘P")
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(Icon::new(IconName::ArrowDownToLine).size(px(14.)))
-                                .child("Pull")
-                                .children(count(self.head.behind)),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.pull(cx))),
-                )
-                .child(
-                    Button::new("push")
-                        .ghost()
-                        .small()
-                        .disabled(no_repo)
-                        .tooltip("Push  ⌘P")
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(Icon::new(IconName::ArrowUpFromLine).size(px(14.)))
-                                .child("Push")
-                                .children(count(self.head.ahead)),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
-                ),
-        )
+                    .on_click(cx.listener(|this, _, _, cx| this.fetch(cx))),
+            )
+            .child(
+                Button::new("pull")
+                    .ghost()
+                    .small()
+                    .disabled(no_repo)
+                    .tooltip("Pull  ⇧⌘P")
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .child(Icon::new(IconName::ArrowDownToLine).size(px(14.)))
+                            .child("Pull")
+                            .children(count(self.head.behind)),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.pull(cx))),
+            )
+            .child(
+                Button::new("push")
+                    .ghost()
+                    .small()
+                    .disabled(no_repo)
+                    .tooltip("Push  ⌘P")
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .child(Icon::new(IconName::ArrowUpFromLine).size(px(14.)))
+                            .child("Push")
+                            .children(count(self.head.ahead)),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.push(cx))),
+            )
     }
 
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1291,117 +1169,33 @@ impl GitApp {
                 )
             })
     }
-
-    fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme();
-        let muted = t.colors.muted_foreground;
-        let this = cx.entity();
-        v_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_4()
-            .child(
-                Icon::new(IconName::GitGraph)
-                    .size(px(40.))
-                    .text_color(t.colors.primary),
-            )
-            .child(
-                div()
-                    .text_size(px(22.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Open a repository"),
-            )
-            .child(
-                div()
-                    .text_color(muted)
-                    .child("Choose a folder that contains a Git repository."),
-            )
-            .child(
-                Button::new("welcome-open")
-                    .primary()
-                    .label("Open Repository…")
-                    .on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))),
-            )
-            .when(!self.recent.is_empty(), |d| {
-                d.child(
-                    v_flex()
-                        .w(px(360.))
-                        .mt_4()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(muted)
-                                .mb_1()
-                                .child("RECENT"),
-                        )
-                        .children(self.recent.iter().enumerate().map(|(i, p)| {
-                            let (path, this) = (p.clone(), this.clone());
-                            h_flex()
-                                .id(("recent", i))
-                                .px_2()
-                                .py_1p5()
-                                .gap_2()
-                                .rounded(t.radius)
-                                .cursor_pointer()
-                                .hover(|d| d.bg(t.colors.list_hover))
-                                .child(Icon::new(IconName::FolderGit2).size(px(14.)).text_color(muted))
-                                .child(
-                                    div().font_weight(FontWeight::MEDIUM).child(
-                                        p.file_name()
-                                            .map(|n| n.to_string_lossy().into_owned())
-                                            .unwrap_or_default(),
-                                    ),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .truncate()
-                                        .text_size(px(11.))
-                                        .text_color(muted)
-                                        .child(p.display().to_string()),
-                                )
-                                .on_click(move |_, _, cx| {
-                                    let path = path.clone();
-                                    this.update(cx, |app, cx| app.open(path, cx));
-                                })
-                        })),
-                )
-            })
-    }
 }
+
+/// What a tab asks of the window around it.
+pub(super) enum AppEvent {
+    /// Open this repository in a tab, or show its tab.
+    Open(PathBuf),
+}
+
+impl EventEmitter<AppEvent> for GitApp {}
 
 impl Render for GitApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        for (ok, msg) in std::mem::take(&mut self.toasts) {
-            window.defer(cx, move |window, cx| {
-                let note = match ok {
-                    Some(true) => Notification::success(msg),
-                    Some(false) => Notification::error(msg),
-                    None => Notification::info(msg),
-                };
-                window.push_notification(note, cx);
-            });
-        }
         #[cfg(debug_assertions)]
         if std::mem::take(&mut self.check_inspector) {
             window.defer(cx, |window, cx| window.toggle_inspector(cx));
         }
-        self.persist_session(window, cx);
         if let Some(which) = self.check_dialog.take() {
             match which.as_str() {
                 "new-branch" => self.new_branch_dialog(None, window, cx),
                 "stash" => self.stash_dialog(window, cx),
                 "palette" => self.open_palette(window, cx),
-                "settings" => self.open_settings(window, cx),
+                "settings" => settings_ui::open_settings(window, cx),
                 _ => {}
             }
         }
-        let (bg, fg) = (cx.theme().colors.background, cx.theme().colors.foreground);
         let body = match (&self.repo, self.view) {
-            (None, _) => self.render_welcome(cx).into_any_element(),
+            (None, _) => div().into_any_element(),
             (Some(_), view) => h_resizable("main-split")
                 .child(
                     resizable_panel()
@@ -1421,7 +1215,6 @@ impl Render for GitApp {
             .id("git-app")
             .key_context("GitApp")
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &OpenRepo, window, cx| this.prompt_open(window, cx)))
             .on_action(cx.listener(|this, _: &Refresh, _, cx| this.reload(cx)))
             .on_action(cx.listener(|this, _: &ShowChanges, _, cx| {
                 this.view = View::Changes;
@@ -1440,9 +1233,6 @@ impl Render for GitApp {
             .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
                 this.open_palette(window, cx)
             }))
-            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
-                this.open_settings(window, cx)
-            }))
             .on_action(cx.listener(|this, _: &StashChanges, window, cx| {
                 if this.repo.is_some() {
                     this.stash_dialog(window, cx)
@@ -1454,11 +1244,6 @@ impl Render for GitApp {
                 }
             }))
             .size_full()
-            .bg(bg)
-            .text_color(fg)
-            .font_family(crate::theme::ui_font(cx))
-            .text_size(px(crate::settings::get(cx).ui_size))
-            .child(self.render_title_bar(cx))
             .child(div().flex_1().min_h_0().child(body))
             .child(self.render_status_bar(cx))
     }

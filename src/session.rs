@@ -1,5 +1,5 @@
-//! Where you left off: the window's place, and per repository the view,
-//! the browsed branch, the selected commit and file. Saved in
+//! Where you left off: the window's place, the open tabs, and per repository
+//! the view, the browsed branch, the selected commit and file. Saved in
 //! `~/Library/Application Support/gibbon/session.json`, so a restart (or the
 //! dev loop's rebuild) opens the same screen again.
 
@@ -33,6 +33,10 @@ pub struct RepoState {
 #[serde(default)]
 pub struct Session {
     pub window: Option<Place>,
+    /// The open tabs, left to right.
+    pub tabs: Vec<PathBuf>,
+    /// The index of the shown tab.
+    pub active: usize,
     pub repos: HashMap<PathBuf, RepoState>,
 }
 
@@ -47,13 +51,21 @@ pub fn load() -> Session {
         .unwrap_or_default()
 }
 
-/// Save the window place and one repository's state, keeping the others.
-pub fn save(window: Option<Place>, root: Option<&Path>, state: Option<&RepoState>) {
+/// Save the window place, the tabs and one repository's state, keeping the
+/// states of the other repositories.
+pub fn save(
+    window: Option<Place>,
+    tabs: &[PathBuf],
+    active: usize,
+    repo: Option<(&Path, &RepoState)>,
+) {
     let mut s = load();
     if window.is_some() {
         s.window = window;
     }
-    if let (Some(root), Some(state)) = (root, state) {
+    s.tabs = tabs.to_vec();
+    s.active = active;
+    if let Some((root, state)) = repo {
         s.repos.insert(root.to_path_buf(), state.clone());
     }
     let Some(f) = file() else { return };

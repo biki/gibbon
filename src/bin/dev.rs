@@ -114,8 +114,10 @@ fn build(root: &Path) -> bool {
 
 fn start(root: &Path, args: &[String], first: bool) -> anyhow::Result<Child> {
     let mut cmd = Command::new(root.join("target/debug/gibbon"));
-    cmd.args(args);
-    if !first {
+    if first {
+        cmd.args(args);
+    } else {
+        // Restarts reopen the saved tabs: the path would show its tab again.
         cmd.env("GIBBON_NO_ACTIVATE", "1");
     }
     Ok(cmd.spawn()?)

@@ -22,6 +22,9 @@ actions!(
         Quit,
         HideApp,
         OpenRepo,
+        CloseTab,
+        NextTab,
+        PrevTab,
         Refresh,
         ShowChanges,
         ShowHistory,
@@ -53,7 +56,8 @@ fn main() {
         unsafe { std::env::set_var("PATH", full) };
     }
     migrate_data_dir();
-    // `gibbon <path>` opens that repository; otherwise the last one.
+    // `gibbon <path>` opens that repository in a tab, next to the tabs of
+    // the last session.
     let arg = std::env::args().nth(1).map(PathBuf::from);
     let app = gpui_kit::application().with_assets(AllAssets);
     app.run(move |cx: &mut App| {
@@ -96,7 +100,15 @@ fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-h", HideApp, None),
-        KeyBinding::new("cmd-o", OpenRepo, Some("GitApp")),
+        KeyBinding::new("cmd-o", OpenRepo, Some("Workspace")),
+        KeyBinding::new("cmd-w", CloseTab, Some("Workspace")),
+        // ⇧⌘] and ⇧⌘[, by the typed character or by the key.
+        KeyBinding::new("cmd-}", NextTab, Some("Workspace")),
+        KeyBinding::new("cmd-{", PrevTab, Some("Workspace")),
+        KeyBinding::new("cmd-shift-]", NextTab, Some("Workspace")),
+        KeyBinding::new("cmd-shift-[", PrevTab, Some("Workspace")),
+        KeyBinding::new("ctrl-tab", NextTab, Some("Workspace")),
+        KeyBinding::new("ctrl-shift-tab", PrevTab, Some("Workspace")),
         KeyBinding::new("cmd-r", Refresh, Some("GitApp")),
         KeyBinding::new("cmd-1", ShowChanges, Some("GitApp")),
         KeyBinding::new("cmd-2", ShowHistory, Some("GitApp")),
@@ -108,7 +120,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-n", NewBranch, Some("GitApp")),
         KeyBinding::new("cmd-alt-s", StashChanges, Some("GitApp")),
         KeyBinding::new("cmd-k", TogglePalette, Some("GitApp")),
-        KeyBinding::new("cmd-,", OpenSettings, Some("GitApp")),
+        KeyBinding::new("cmd-,", OpenSettings, Some("Workspace")),
         KeyBinding::new("up", SelectPrev, Some("CommitList")),
         KeyBinding::new("down", SelectNext, Some("CommitList")),
     ]);
@@ -125,13 +137,20 @@ fn install_menus(cx: &mut App) {
             MenuItem::action("Hide Gibbon", HideApp),
             MenuItem::action("Quit Gibbon", Quit),
         ]),
-        Menu::new("File").items([MenuItem::action("Open Repository…", OpenRepo)]),
+        Menu::new("File").items([
+            MenuItem::action("Open Repository…", OpenRepo),
+            MenuItem::action("Close Tab", CloseTab),
+        ]),
         Menu::new("View").items([
             MenuItem::action("Changes", ShowChanges),
             MenuItem::action("History", ShowHistory),
             MenuItem::action("All Branches", ShowAllBranches),
             MenuItem::separator(),
             MenuItem::action("Refresh", Refresh),
+        ]),
+        Menu::new("Window").items([
+            MenuItem::action("Show Previous Tab", PrevTab),
+            MenuItem::action("Show Next Tab", NextTab),
         ]),
         Menu::new("Repository").items([
             MenuItem::action("Fetch", Fetch),
@@ -174,21 +193,15 @@ fn open_window(cx: &mut App, path: Option<PathBuf>) {
         },
         cx,
         |window, cx| {
-            let view = cx.new(|cx| app::GitApp::new(window, cx));
-            let start = path.or_else(|| recent::load().into_iter().next());
-            if let Some(p) = start {
-                view.update(cx, |app, cx| {
-                    app.open(p, cx);
-                    app.apply_check_env(cx);
-                });
-            }
+            let view = cx.new(app::Workspace::new);
+            view.update(cx, |ws, cx| ws.restore(path, window, cx));
             window
                 .observe_window_appearance(|_, cx| {
                     theme::apply(cx);
                     cx.refresh_windows();
                 })
                 .detach();
-            view.read(cx).focus_handle().focus(window, cx);
+            view.read(cx).focus_handle(cx).focus(window, cx);
             view
         },
     );
