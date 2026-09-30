@@ -71,6 +71,22 @@ branch the whole time:
 - Select commits (click, <kbd>⌘</kbd>-click, <kbd>⇧</kbd>-click) and click
   **Pick into …**. Merge commits pick against their first parent.
 
+### Review a branch
+
+Agent branches often have many small commits. **Review Changes** shows all
+the changes of a branch as one diff, as a pull request does: what the branch
+changed since it left its base (`git diff base...branch`).
+
+- Right-click a branch, a worktree or a pull request ▸ **Review Changes**, or
+  click **Review Changes** while you browse a branch. The command palette has
+  **Review …** too.
+- The base is the base branch. Choose another one in the header.
+- Mark each file as **Viewed**, in the list or above its diff. A file that
+  changes again loses its mark. The marks stay after a restart.
+- When a worktree has the branch checked out, **Uncommitted changes** adds
+  the files of that worktree, new files included. That is the work of an
+  agent that has not committed yet. The review updates while the agent works.
+
 ### Interactive rebase
 
 Right-click a commit ▸ **Interactive Rebase from Here…**. Set *pick*,
@@ -214,6 +230,7 @@ Environment variables for automated UI checks:
 | `GIBBON_DIFF=split` | Split diffs |
 | `GIBBON_REBASE=<sha>` | Open the rebase planner from that commit |
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
+| `GIBBON_REVIEW=<branch or ref>` | Review that branch against the base branch |
 | `GIBBON_DIALOG=new-branch\|stash\|palette\|settings` | Open that dialog |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |

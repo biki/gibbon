@@ -109,7 +109,7 @@ pub(super) fn hunk_lines(file: &FileDiff, hunk: usize) -> HashSet<usize> {
 
 impl GitApp {
     /// The diff of the shown view: the selected file of the commit, of the
-    /// stash, or of the working tree.
+    /// stash, of the review, or of the working tree.
     pub(super) fn render_shown_diff(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
         let (file, styles, ctx, id) = match self.view {
             View::History => (
@@ -143,17 +143,28 @@ impl GitApp {
                 },
                 "change-diff",
             ),
+            View::Review => {
+                let ui = self.review.as_ref();
+                let d = ui.and_then(|r| Some((r.diff.clone()?, r.file)));
+                let styles = d.as_ref().and_then(|(d, ix)| self.review_styles.get(&d.sha, *ix));
+                let file = d.filter(|(d, ix)| *ix < d.files.len()).map(|(d, ix)| DiffFile::Of(d, ix));
+                let viewed = file.as_ref().and_then(|_| self.viewed_check(cx));
+                return self.render_diff(file, styles, DiffCtx::Commit, "review-diff", viewed, memo, cx);
+            }
             View::Rebase => return div().into_any_element(),
         };
-        self.render_diff(file, styles, ctx, id, memo, cx)
+        self.render_diff(file, styles, ctx, id, None, memo, cx)
     }
 
+    /// `extra` goes in the header, before the view switch.
+    #[allow(clippy::too_many_arguments)]
     fn render_diff(
         &self,
         file: Option<DiffFile>,
         styles: Option<Rc<DiffStyles>>,
         ctx: DiffCtx,
         id: &'static str,
+        extra: Option<AnyElement>,
         memo: &mut Memo,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -206,6 +217,7 @@ impl GitApp {
                     .text_color(t.colors.red)
                     .child(format!("−{}", file.deletions)),
             )
+            .when_some(extra, |d, e| d.child(div().ml_2().child(e)))
             .child(
                 segmented(
                     "diff-mode",

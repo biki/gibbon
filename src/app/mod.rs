@@ -75,6 +75,7 @@ impl FileStyles {
 enum Shown {
     Commit,
     Stash,
+    Review,
 }
 
 /// What changed on disk: the most that must reload for this worktree, and
@@ -107,6 +108,7 @@ mod branches;
 mod changes;
 mod palette;
 mod rebase;
+mod review;
 mod settings_ui;
 mod diff;
 mod files;
@@ -128,6 +130,8 @@ pub enum View {
     Stash(usize),
     /// The interactive rebase planner.
     Rebase,
+    /// A branch's changes since it left its base (see `review`).
+    Review,
 }
 
 pub struct GitApp {
@@ -154,6 +158,13 @@ pub struct GitApp {
     stash_styles: FileStyles,
     stash_file: usize,
     rebase: Option<rebase::RebaseUi>,
+    review: Option<review::ReviewUi>,
+    review_styles: FileStyles,
+    review_epoch: u64,
+    /// Files marked as viewed, by the ref under review (see `review`).
+    viewed: HashMap<String, HashSet<String>>,
+    /// A branch to review once the refs load (UI checks).
+    check_review: Option<String>,
     /// A cherry-pick, rebase or merge stopped on conflicts.
     paused: Option<git::Paused>,
     view: View,
@@ -225,6 +236,7 @@ impl GitApp {
             cx.observe_global::<gpui_kit::component::theme::Theme>(|this, cx| {
                 this.detail_styles = FileStyles::default();
                 this.stash_styles = FileStyles::default();
+                this.review_styles = FileStyles::default();
                 this.highlight_shown(cx);
                 this.load_change_diff(cx);
             }),
@@ -248,6 +260,11 @@ impl GitApp {
             stash_styles: FileStyles::default(),
             stash_file: 0,
             rebase: None,
+            review: None,
+            review_styles: FileStyles::default(),
+            review_epoch: 0,
+            viewed: HashMap::new(),
+            check_review: None,
             paused: None,
             view: View::History,
             target: LogTarget::Head,
@@ -403,6 +420,11 @@ impl GitApp {
                     this.start_watcher(dirs.map_err(|e| e.to_string()), others, cx);
                 }
                 this.load_worktree_info(false, cx);
+                if let Some(target) = this.check_review.take() {
+                    this.start_review(target, cx);
+                } else if this.view == View::Review {
+                    this.load_review(cx);
+                }
                 if let View::Stash(i) = this.view {
                     if this.stashes.iter().any(|s| s.index == i) {
                         this.stash_file = 0;
@@ -498,6 +520,10 @@ impl GitApp {
         }
         if change.others {
             self.load_worktree_info(false, cx);
+        }
+        // A review with uncommitted changes shows files on disk.
+        if self.view == View::Review && self.review.as_ref().is_some_and(|r| r.worktree.is_some()) {
+            self.load_review(cx);
         }
     }
 
@@ -794,12 +820,16 @@ impl GitApp {
         if let Some(d) = self.stash_detail.clone() {
             self.highlight_file(Shown::Stash, d, self.stash_file, cx);
         }
+        if let Some((d, ix)) = self.review.as_ref().and_then(|r| Some((r.diff.clone()?, r.file))) {
+            self.highlight_file(Shown::Review, d, ix, cx);
+        }
     }
 
     fn file_styles(&mut self, of: Shown) -> &mut FileStyles {
         match of {
             Shown::Commit => &mut self.detail_styles,
             Shown::Stash => &mut self.stash_styles,
+            Shown::Review => &mut self.review_styles,
         }
     }
 
@@ -1049,7 +1079,8 @@ impl GitApp {
         let view = match self.view {
             View::Changes => "changes".to_string(),
             View::Stash(n) => format!("stash:{n}"),
-            View::History | View::Rebase => "history".to_string(),
+            View::Review if self.review.is_some() => "review".to_string(),
+            View::History | View::Rebase | View::Review => "history".to_string(),
         };
         let target = match &self.target {
             LogTarget::Head => None,
@@ -1068,6 +1099,12 @@ impl GitApp {
             commit,
             file: self.pending_file.unwrap_or(self.detail_file),
             change: self.change_sel.clone(),
+            review: self.review.as_ref().map(|r| crate::session::ReviewState {
+                target: r.target.clone(),
+                base: r.base.clone(),
+                worktree: r.worktree.clone(),
+            }),
+            viewed: self.viewed_to_save(),
         })
     }
 
@@ -1080,8 +1117,18 @@ impl GitApp {
             return;
         };
         self.restored = true;
+        self.viewed = s
+            .viewed
+            .into_iter()
+            .map(|(target, keys)| (target, keys.into_iter().collect()))
+            .collect();
+        // The review loads with the refs.
+        self.review = s
+            .review
+            .map(|r| review::ReviewUi::new(r.target, r.base, r.worktree));
         self.view = match s.view.as_str() {
             "changes" => View::Changes,
+            "review" if self.review.is_some() => View::Review,
             v => match v.strip_prefix("stash:").and_then(|n| n.parse().ok()) {
                 Some(n) => View::Stash(n),
                 None => View::History,
@@ -1100,7 +1147,7 @@ impl GitApp {
     /// Start state for automated UI checks:
     /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all`,
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
-    /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`,
+    /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`, `GIBBON_REVIEW=<branch>`,
     /// `GIBBON_DIALOG=new-branch|stash|palette|settings`, `GIBBON_INSPECTOR=1`.
     pub fn apply_check_env(&mut self, cx: &mut Context<Self>) {
         let var = |k: &str| std::env::var(k).ok();
@@ -1121,6 +1168,13 @@ impl GitApp {
         }
         if let Some(sha) = var("GIBBON_REBASE") {
             self.start_rebase(sha, cx);
+        }
+        if let Some(b) = var("GIBBON_REVIEW") {
+            self.check_review = Some(if b.starts_with("refs/") {
+                b
+            } else {
+                format!("refs/heads/{b}")
+            });
         }
         if let Some(n) = var("GIBBON_STASH").and_then(|n| n.parse().ok()) {
             self.view = View::Stash(n);
@@ -1213,8 +1267,9 @@ impl GitApp {
         .detach();
     }
 
-    /// Fetch a pull request's head and browse it like a branch.
-    fn browse_pr(&mut self, pr: crate::github::PullRequest, cx: &mut Context<Self>) {
+    /// Fetch a pull request's head and browse it like a branch, or with
+    /// `review` review it against its base branch.
+    fn browse_pr(&mut self, pr: crate::github::PullRequest, review: bool, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.clone() else {
             return;
         };
@@ -1232,6 +1287,7 @@ impl GitApp {
             let _ = this.update(cx, |this, cx| {
                 this.set_busy(None, cx);
                 match result {
+                    Ok(()) if review => this.start_pr_review(&pr, cx),
                     Ok(()) => this.show_target(LogTarget::Ref(pr.refname()), cx),
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
@@ -1502,6 +1558,7 @@ impl Render for GitApp {
                     View::History => self.render_history(cx).into_any_element(),
                     View::Stash(i) => self.render_stash(i, cx),
                     View::Rebase => self.render_rebase(cx),
+                    View::Review => self.render_review(cx),
                 }))
                 .into_any_element(),
         };

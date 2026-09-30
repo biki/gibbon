@@ -290,7 +290,7 @@ impl GitApp {
                     })
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| this.browse_pr(p.clone(), cx)),
+                        cx.listener(move |this, _, _, cx| this.browse_pr(p.clone(), false, cx)),
                     )
                     .context_menu(move |menu, _, _| {
                         let (url, url2, n) = (
@@ -298,12 +298,18 @@ impl GitApp {
                             menu_pr.url.clone(),
                             menu_pr.number,
                         );
-                        let (this, this2) = (this.clone(), this.clone());
-                        let browse = menu_pr.clone();
+                        let (this, this2, this3) = (this.clone(), this.clone(), this.clone());
+                        let (browse, review) = (menu_pr.clone(), menu_pr.clone());
                         menu.item(PopupMenuItem::new("Browse Commits").on_click(
                             move |_, _, cx| {
                                 let pr = browse.clone();
-                                this.update(cx, |app, cx| app.browse_pr(pr, cx));
+                                this.update(cx, |app, cx| app.browse_pr(pr, false, cx));
+                            },
+                        ))
+                        .item(PopupMenuItem::new("Review Changes").on_click(
+                            move |_, _, cx| {
+                                let pr = review.clone();
+                                this3.update(cx, |app, cx| app.browse_pr(pr, true, cx));
                             },
                         ))
                         .item(PopupMenuItem::new("Check Out").on_click(move |_, _, cx| {
@@ -412,6 +418,15 @@ impl GitApp {
                                 },
                             ),
                         );
+                        if menu_branch.kind != RefKind::Tag {
+                            let (this, r) = (this.clone(), menu_branch.refname.clone());
+                            menu = menu.item(PopupMenuItem::new("Review Changes").on_click(
+                                move |_, _, cx| {
+                                    let r = r.clone();
+                                    this.update(cx, |app, cx| app.start_review(r, cx));
+                                },
+                            ));
+                        }
                         if !menu_branch.is_head {
                             menu = menu.label(format!("Pick commits from here into {head}"));
                         }

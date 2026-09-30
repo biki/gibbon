@@ -808,6 +808,78 @@ pub fn parse_patch(text: &str) -> Vec<FileDiff> {
     files
 }
 
+/// New files that a review of a worktree shows at most. An agent can make
+/// thousands, for example when a build folder is not ignored.
+const REVIEW_NEW_FILES: usize = 500;
+
+/// What a branch changed since it left its base.
+#[derive(Clone, Debug)]
+pub struct BranchDiff {
+    /// The last commit that the branch and the base share.
+    pub merge_base: String,
+    /// Commits of the branch that the base does not have.
+    pub commits: usize,
+    pub files: Vec<FileDiff>,
+    /// New files past `REVIEW_NEW_FILES` that the diff leaves out.
+    pub more_new_files: usize,
+}
+
+/// The combined change of `target` since it left `base`, as in
+/// `git diff base...target`. With `worktree` (a folder that has `target`
+/// checked out), the diff runs to that folder's files instead, so
+/// uncommitted changes and new files count too.
+pub fn branch_diff(
+    repo: &Repo,
+    base: &str,
+    target: &str,
+    worktree: Option<&Path>,
+) -> Result<BranchDiff> {
+    let merge_base = repo
+        .git(&["merge-base", base, target])
+        .map_err(|_| anyhow!("{target} and {base} have no commit in common."))?
+        .trim()
+        .to_string();
+    let range = format!("{base}..{target}");
+    let commits = repo
+        .git(&["rev-list", "--count", range.as_str()])?
+        .trim()
+        .parse()
+        .unwrap_or(0);
+    let mut more_new_files = 0;
+    let files = match worktree {
+        None => parse_patch(&repo.git(&[
+            "diff",
+            "--no-color",
+            "-M",
+            merge_base.as_str(),
+            target,
+        ])?),
+        Some(dir) => {
+            let mut files =
+                parse_patch(&run_in(dir, &["diff", "--no-color", "-M", merge_base.as_str()])?);
+            let out = run_in(dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+            let new: Vec<&str> = out.split('\0').filter(|p| !p.is_empty()).collect();
+            more_new_files = new.len().saturating_sub(REVIEW_NEW_FILES);
+            for path in new.into_iter().take(REVIEW_NEW_FILES) {
+                // `--no-index` exits 1 when the files differ, which is always here.
+                let out = command(
+                    dir,
+                    &["diff", "--no-color", "--no-index", "--", "/dev/null", path],
+                )
+                .output()?;
+                files.extend(parse_patch(&String::from_utf8_lossy(&out.stdout)));
+            }
+            files
+        }
+    };
+    Ok(BranchDiff {
+        merge_base,
+        commits,
+        files,
+        more_new_files,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Working tree
 
@@ -1960,6 +2032,41 @@ mod tests {
         remove_worktree(r, &wt.path, true).unwrap();
         assert!(!wt.path.exists());
         assert_eq!(worktrees(r).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn branch_diff_shows_only_the_branch() {
+        let t = temp_repo("branch-diff");
+        let r = &t.0;
+        commit_file(r, "a.txt", "base", "base");
+        r.git(&["switch", "-q", "-c", "feature"]).unwrap();
+        commit_file(r, "b.txt", "one", "feature one");
+        commit_file(r, "b.txt", "two", "feature two");
+        r.git(&["switch", "-q", "main"]).unwrap();
+        // main moves on: its change is not part of the review.
+        commit_file(r, "a.txt", "main", "main edit");
+
+        let d = branch_diff(r, "refs/heads/main", "refs/heads/feature", None).unwrap();
+        assert_eq!(d.commits, 2);
+        let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["b.txt"]);
+        assert_eq!((d.files[0].additions, d.files[0].deletions), (2, 0));
+
+        // In a worktree: an uncommitted edit and a new file count too.
+        let wt = r.root.join("wt");
+        let wt_arg = wt.to_string_lossy().into_owned();
+        r.git(&["worktree", "add", "-q", wt_arg.as_str(), "feature"]).unwrap();
+        std::fs::write(wt.join("b.txt"), "one\ntwo\nthree\n").unwrap();
+        std::fs::write(wt.join("new.txt"), "fresh\n").unwrap();
+        let d = branch_diff(r, "refs/heads/main", "refs/heads/feature", Some(&wt)).unwrap();
+        let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["b.txt", "new.txt"]);
+        assert_eq!(d.files[0].additions, 3);
+        assert_eq!(d.files[1].change, FileChange::Added);
+        assert_eq!(d.more_new_files, 0);
+
+        let err = branch_diff(r, "refs/heads/main", "refs/heads/nope", None).unwrap_err();
+        assert!(err.to_string().contains("no commit in common"), "{err}");
     }
 
     #[test]

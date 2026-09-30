@@ -20,6 +20,8 @@ pub(super) enum Part {
     Commit,
     /// The files of the shown stash.
     StashFiles,
+    /// The files of the shown review.
+    ReviewFiles,
     /// The file list and the commit box of Changes.
     Changes,
     /// The diff of the shown view.
@@ -94,6 +96,7 @@ impl GitApp {
             Part::Log => self.render_log(memo, cx).into_any_element(),
             Part::Commit => self.render_commit(memo, cx),
             Part::StashFiles => self.render_stash_files(memo, cx),
+            Part::ReviewFiles => self.render_review_files(memo, cx),
             Part::Changes => self.render_change_list(memo, cx).into_any_element(),
             Part::Diff => self.render_shown_diff(memo, cx),
         }

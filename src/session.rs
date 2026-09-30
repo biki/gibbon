@@ -19,7 +19,7 @@ pub struct Place {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RepoState {
-    /// "changes", "history" or "stash:<n>".
+    /// "changes", "history", "review" or "stash:<n>".
     pub view: String,
     /// None for the checked-out branch, "all", or a full ref name.
     pub target: Option<String>,
@@ -27,6 +27,21 @@ pub struct RepoState {
     pub file: usize,
     /// A working-tree file: (path, staged side).
     pub change: Option<(String, bool)>,
+    /// The shown review, when the view is "review".
+    pub review: Option<ReviewState>,
+    /// The files marked as viewed, by the ref under review. Each is a path
+    /// and a hash of its diff, so a file that changes again is not viewed.
+    pub viewed: HashMap<String, Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReviewState {
+    /// Full ref names or commits.
+    pub target: String,
+    pub base: String,
+    /// The worktree whose uncommitted changes the review shows.
+    pub worktree: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

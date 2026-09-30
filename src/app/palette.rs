@@ -9,6 +9,7 @@ enum Section {
     Actions,
     Switch(Vec<Branch>),
     Browse(Vec<(String, String)>),
+    Review(Vec<(String, String)>),
     Prs(Vec<crate::github::PullRequest>),
     Repos(Vec<PathBuf>),
 }
@@ -45,6 +46,15 @@ impl GitApp {
                 .collect();
             if !browse.is_empty() {
                 sections.push(Section::Browse(browse));
+            }
+            let review: Vec<(String, String)> = self
+                .branches
+                .iter()
+                .filter(|b| b.kind == RefKind::Local && Some(&b.refname) != self.base.as_ref())
+                .map(|b| (b.refname.clone(), b.name.clone()))
+                .collect();
+            if !review.is_empty() {
+                sections.push(Section::Review(review));
             }
             if !self.prs.is_empty() {
                 sections.push(Section::Prs(self.prs.clone()));
@@ -89,9 +99,14 @@ impl GitApp {
                                 app.show_target(LogTarget::Ref(r.clone()), cx)
                             }
                         }
+                        Section::Review(list) => {
+                            if let Some((r, _)) = list.get(row) {
+                                app.start_review(r.clone(), cx)
+                            }
+                        }
                         Section::Prs(list) => {
                             if let Some(p) = list.get(row) {
-                                app.browse_pr(p.clone(), cx)
+                                app.browse_pr(p.clone(), false, cx)
                             }
                         }
                         Section::Repos(list) => {
@@ -160,6 +175,14 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                     } else {
                         IconName::GitBranch
                     }))
+            },
+        )),
+        Section::Review(list) => CommandGroup::new().label("Review branch").items(list.iter().map(
+            |(_, name)| {
+                CommandItem::new()
+                    .label(format!("Review {name}"))
+                    .keywords([name.clone(), "diff".into(), "compare".into()])
+                    .icon(Icon::new(IconName::GitCompare))
             },
         )),
         Section::Prs(list) => CommandGroup::new()

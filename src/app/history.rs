@@ -235,6 +235,22 @@ impl GitApp {
                         .label(format!("Back to {head}"))
                         .on_click(cx.listener(|this, _, _, cx| this.show_target(LogTarget::Head, cx))),
                 )
+                .child({
+                    let (target, pr) = (target.to_string(), pr.cloned());
+                    Button::new("review-branch")
+                        .small()
+                        .child(
+                            h_flex()
+                                .gap_1p5()
+                                .child(Icon::new(IconName::GitCompare).size(px(14.)))
+                                .child("Review Changes"),
+                        )
+                        .tooltip("All changes of the branch as one diff")
+                        .on_click(cx.listener(move |this, _, _, cx| match &pr {
+                            Some(pr) => this.start_pr_review(pr, cx),
+                            None => this.start_review(target.clone(), cx),
+                        }))
+                })
                 .child(
                     Button::new("pick")
                         .primary()

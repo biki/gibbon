@@ -302,6 +302,12 @@ fn worktree_menu(
             app.update(cx, |app, cx| app.show_target(LogTarget::Ref(r), cx));
         }));
     }
+    if !wt.prunable && wt.head.is_some() {
+        let (app, w) = (this.clone(), wt.clone());
+        menu = menu.item(PopupMenuItem::new("Review Changes").on_click(move |_, _, cx| {
+            app.update(cx, |app, cx| app.start_worktree_review(&w, cx));
+        }));
+    }
     menu = menu.separator();
     if !wt.prunable {
         let dir = wt.path.clone();
