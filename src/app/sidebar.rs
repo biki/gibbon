@@ -22,14 +22,51 @@ enum Row {
     Stash(usize),
     /// Index into `prs`.
     Pr(usize),
+    /// Index into `worktrees`.
+    Worktree(usize),
 }
 
 const ROW_H: f32 = 28.;
+
+/// The frame of a sidebar row: filled while `active`, highlighted on hover.
+pub(super) fn side_row(ix: usize, active: bool, cx: &App) -> Stateful<Div> {
+    let t = cx.theme();
+    h_flex()
+        .id(("side", ix))
+        .w_full()
+        .h(px(ROW_H))
+        .px_2()
+        .gap_2()
+        .rounded(t.radius)
+        .cursor_pointer()
+        .when(active, |d| d.bg(t.colors.sidebar_accent))
+        .when(!active, |d| d.child(hover_fill(t.colors.list_hover, t.radius)))
+}
 
 impl GitApp {
     fn sidebar_rows(&self, cx: &App) -> Vec<Row> {
         let needle = self.filter.read(cx).value().to_lowercase();
         let mut rows = vec![Row::Changes, Row::History, Row::All];
+        if self.has_worktrees() {
+            let matches: Vec<usize> = (0..self.worktrees.len())
+                .filter(|&i| {
+                    let w = &self.worktrees[i];
+                    needle.is_empty()
+                        || w.branch_name().is_some_and(|b| b.to_lowercase().contains(&needle))
+                        || w.folder().to_lowercase().contains(&needle)
+                })
+                .collect();
+            if !matches.is_empty() {
+                rows.push(Row::Header {
+                    key: "worktrees",
+                    label: "Worktrees",
+                    count: matches.len(),
+                });
+                if !self.collapsed.contains("worktrees") {
+                    rows.extend(matches.into_iter().map(Row::Worktree));
+                }
+            }
+        }
         for (key, label, kind) in [
             ("local", "Branches", Some(RefKind::Local)),
             ("prs", "Pull requests", None),
@@ -132,18 +169,7 @@ impl GitApp {
     fn render_side_row(&self, row: &Row, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
-        let base = |active: bool| {
-            h_flex()
-                .id(("side", ix))
-                .w_full()
-                .h(px(ROW_H))
-                .px_2()
-                .gap_2()
-                .rounded(t.radius)
-                .cursor_pointer()
-                .when(active, |d| d.bg(t.colors.sidebar_accent))
-                .when(!active, |d| d.child(hover_fill(t.colors.list_hover, t.radius)))
-        };
+        let base = |active: bool| side_row(ix, active, cx);
         let label = |text: String, strong: bool| {
             div()
                 .flex_1()
@@ -162,6 +188,7 @@ impl GitApp {
                 .child(text)
         };
         match row {
+            &Row::Worktree(wi) => self.render_worktree_row(wi, ix, cx),
             Row::Changes => {
                 let active = self.view == View::Changes;
                 let n = self.status.len();

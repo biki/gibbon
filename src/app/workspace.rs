@@ -295,6 +295,18 @@ impl Workspace {
         };
         match event {
             AppEvent::Open(path) => self.open(path.clone(), window, cx),
+            AppEvent::OpenWorktree(path) => {
+                let new = self.tab_of(path).is_none();
+                self.open(path.clone(), window, cx);
+                if new && let Some(app) = self.active_app().cloned() {
+                    app.update(cx, |app, cx| app.show_changes_if_new(cx));
+                }
+            }
+            AppEvent::Forget(path) => {
+                if let Some(ix) = self.tab_of(path) {
+                    self.close(ix, window, cx);
+                }
+            }
             AppEvent::Busy(busy) => {
                 self.tabs[ix].busy = *busy;
                 cx.notify();

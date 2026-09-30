@@ -77,6 +77,32 @@ enum Shown {
     Stash,
 }
 
+/// What changed on disk: the most that must reload for this worktree, and
+/// whether another worktree of the repository changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct DiskChange {
+    own: Option<crate::watch::Change>,
+    others: bool,
+}
+
+impl DiskChange {
+    fn add(&mut self, change: crate::watch::Change) {
+        match change {
+            crate::watch::Change::Worktrees => self.others = true,
+            own => self.own = self.own.max(Some(own)),
+        }
+    }
+
+    fn merge(&mut self, other: DiskChange) {
+        self.own = self.own.max(other.own);
+        self.others |= other.others;
+    }
+}
+
+/// How often the worktree rows refresh without a change on disk, so their
+/// times stay right.
+const WORKTREE_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+
 mod branches;
 mod changes;
 mod palette;
@@ -90,6 +116,7 @@ mod pane;
 mod sidebar;
 mod stash;
 mod workspace;
+mod worktrees;
 
 pub use workspace::Workspace;
 
@@ -114,6 +141,15 @@ pub struct GitApp {
     status: Vec<StatusEntry>,
     stashes: Vec<git::Stash>,
     prs: Vec<crate::github::PullRequest>,
+    /// The worktrees of the repository, the main one first.
+    worktrees: Vec<git::Worktree>,
+    /// The worktree of this tab, an index into `worktrees`.
+    current_worktree: Option<usize>,
+    /// What each worktree holds, by its folder, with the load it came from.
+    worktree_info: HashMap<PathBuf, (u64, git::WorktreeInfo)>,
+    worktree_epoch: u64,
+    /// The branch that others start from, a full ref name.
+    base: Option<String>,
     stash_detail: Option<Rc<CommitDetail>>,
     stash_styles: FileStyles,
     stash_file: usize,
@@ -160,10 +196,15 @@ pub struct GitApp {
     check_inspector: bool,
     _watcher: Option<crate::watch::RepoWatcher>,
     _watch_task: Option<Task<()>>,
+    /// The other worktrees that the watcher was started for.
+    watched: Option<Vec<PathBuf>>,
+    _tick: Option<Task<()>>,
+    /// The session had a state for this repository.
+    restored: bool,
     /// The tab is not shown: changes on disk wait in `hidden_change`.
     hidden: bool,
     /// What changed on disk while the tab was hidden.
-    hidden_change: Option<crate::watch::Change>,
+    hidden_change: DiskChange,
     log_epoch: u64,
     detail_epoch: u64,
     diff_epoch: u64,
@@ -198,6 +239,11 @@ impl GitApp {
             status: vec![],
             stashes: vec![],
             prs: vec![],
+            worktrees: vec![],
+            current_worktree: None,
+            worktree_info: HashMap::new(),
+            worktree_epoch: 0,
+            base: None,
             stash_detail: None,
             stash_styles: FileStyles::default(),
             stash_file: 0,
@@ -237,8 +283,11 @@ impl GitApp {
             check_inspector: false,
             _watcher: None,
             _watch_task: None,
+            watched: None,
+            _tick: None,
+            restored: false,
             hidden: false,
-            hidden_change: None,
+            hidden_change: DiskChange::default(),
             log_epoch: 0,
             detail_epoch: 0,
             diff_epoch: 0,
@@ -271,9 +320,22 @@ impl GitApp {
     pub(super) fn open_repo(&mut self, repo: Repo, cx: &mut Context<Self>) {
         self.repo = Some(repo);
         self.restore_session();
-        self.start_watcher(cx);
+        // The first reload starts the watcher: it needs the worktrees.
         self.reload(cx);
         self.load_prs(cx);
+        self._tick = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(WORKTREE_TICK).await;
+                let shown = this.update(cx, |this, cx| {
+                    if !this.hidden && this.busy.is_none() {
+                        this.load_worktree_info(false, cx);
+                    }
+                });
+                if shown.is_err() {
+                    break;
+                }
+            }
+        }));
         cx.notify();
     }
 
@@ -284,15 +346,26 @@ impl GitApp {
         };
         cx.spawn(async move |this, cx| {
             let r = repo.clone();
-            let (head, branches, status, paused, stashes) = cx
+            let (head, branches, status, paused, stashes, worktrees, dirs) = cx
                 .background_executor()
                 .spawn(async move {
+                    let worktrees = git::worktrees(&r).map(|list| {
+                        let own = r.root.canonicalize().unwrap_or_else(|_| r.root.clone());
+                        let current = list.iter().position(|w| w.path == own);
+                        (list, current, git::base_branch(&r))
+                    });
+                    let dirs = git::git_dir(&r).map(|git_dir| {
+                        let common = git::common_dir(&r).unwrap_or_else(|_| git_dir.clone());
+                        (git_dir, common)
+                    });
                     (
                         git::head(&r),
                         git::branches(&r),
                         git::status(&r),
                         git::paused(&r),
                         git::stashes(&r),
+                        worktrees,
+                        dirs,
                     )
                 })
                 .await;
@@ -312,6 +385,24 @@ impl GitApp {
                 }
                 this.paused = paused;
                 this.stashes = stashes.unwrap_or_default();
+                if let Ok((list, current, base)) = worktrees {
+                    this.worktree_info
+                        .retain(|path, _| list.iter().any(|w| &w.path == path));
+                    this.worktrees = list;
+                    this.current_worktree = current;
+                    this.base = base;
+                }
+                let others: Vec<PathBuf> = this
+                    .worktrees
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| Some(i) != this.current_worktree)
+                    .map(|(_, w)| w.path.clone())
+                    .collect();
+                if this.watched.as_ref() != Some(&others) {
+                    this.start_watcher(dirs.map_err(|e| e.to_string()), others, cx);
+                }
+                this.load_worktree_info(false, cx);
                 if let View::Stash(i) = this.view {
                     if this.stashes.iter().any(|s| s.index == i) {
                         this.stash_file = 0;
@@ -338,17 +429,31 @@ impl GitApp {
     }
 
     /// Reload on changes outside the app: status for file edits, everything
-    /// for ref moves. Bursts (saves, checkouts, builds) settle for 300 ms.
-    fn start_watcher(&mut self, cx: &mut Context<Self>) {
+    /// for ref moves, the worktree rows for changes in `others`. Bursts
+    /// (saves, checkouts, builds) settle for 300 ms. `dirs` is this
+    /// worktree's `.git` folder and the one with the refs.
+    fn start_watcher(
+        &mut self,
+        dirs: Result<(PathBuf, PathBuf), String>,
+        others: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         use futures::StreamExt as _;
         self._watcher = None;
         self._watch_task = None;
         let Some(repo) = self.repo.clone() else {
             return;
         };
-        let started = git::git_dir(&repo)
+        self.watched = Some(others.clone());
+        let started = dirs.and_then(|(git_dir, common_dir)| {
+            crate::watch::watch(&crate::watch::Dirs {
+                root: repo.root.clone(),
+                git_dir,
+                common_dir,
+                others,
+            })
             .map_err(|e| e.to_string())
-            .and_then(|dir| crate::watch::watch(&repo.root, &dir).map_err(|e| e.to_string()));
+        });
         let (watcher, mut rx) = match started {
             Ok(w) => w,
             Err(e) => {
@@ -362,9 +467,10 @@ impl GitApp {
                 cx.background_executor()
                     .timer(std::time::Duration::from_millis(300))
                     .await;
-                let mut change = first;
+                let mut change = DiskChange::default();
+                change.add(first);
                 while let Ok(more) = rx.try_recv() {
-                    change = change.max(more);
+                    change.add(more);
                 }
                 if this.update(cx, |this, cx| this.disk_changed(change, cx)).is_err() {
                     break;
@@ -374,28 +480,82 @@ impl GitApp {
     }
 
     /// Reload what `change` touched. A hidden tab reloads when it is shown.
-    fn disk_changed(&mut self, change: crate::watch::Change, cx: &mut Context<Self>) {
+    fn disk_changed(&mut self, change: DiskChange, cx: &mut Context<Self>) {
         use crate::watch::Change;
         // A running operation reloads when it ends.
         if self.busy.is_some() {
             return;
         }
         if self.hidden {
-            self.hidden_change = self.hidden_change.max(Some(change));
+            self.hidden_change.merge(change);
             return;
         }
-        match change {
-            Change::Refs => self.reload(cx),
-            Change::Files => self.reload_status(cx),
+        match change.own {
+            // A full reload includes the worktrees.
+            Some(Change::Refs) => return self.reload(cx),
+            Some(Change::Files) => self.reload_status(cx),
+            _ => {}
+        }
+        if change.others {
+            self.load_worktree_info(false, cx);
         }
     }
 
     /// Hide or show this tab. Showing it reloads what changed while hidden.
     pub(super) fn set_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
         self.hidden = hidden;
-        if !hidden && let Some(change) = self.hidden_change.take() {
-            self.disk_changed(change, cx);
+        if !hidden {
+            let change = std::mem::take(&mut self.hidden_change);
+            if change != DiskChange::default() {
+                self.disk_changed(change, cx);
+            }
         }
+    }
+
+    /// Load what the worktrees hold, or with `own_only` what this tab's
+    /// worktree holds. A repository with one worktree shows no rows.
+    fn load_worktree_info(&mut self, own_only: bool, cx: &mut Context<Self>) {
+        if self.worktrees.len() < 2 {
+            return;
+        }
+        self.worktree_epoch += 1;
+        let epoch = self.worktree_epoch;
+        let list: Vec<git::Worktree> = self
+            .worktrees
+            .iter()
+            .enumerate()
+            .filter(|&(i, w)| !w.prunable && (!own_only || Some(i) == self.current_worktree))
+            .map(|(_, w)| w.clone())
+            .collect();
+        let base = self.base.clone();
+        cx.spawn(async move |this, cx| {
+            // One task per worktree: each runs `git status` in its folder.
+            let tasks: Vec<_> = list
+                .into_iter()
+                .map(|wt| {
+                    let base = base.clone();
+                    cx.background_executor().spawn(async move {
+                        let info = git::worktree_info(&wt, base.as_deref());
+                        (wt.path, info)
+                    })
+                })
+                .collect();
+            let results = futures::future::join_all(tasks).await;
+            let _ = this.update(cx, |this, cx| {
+                for (path, info) in results {
+                    let Ok(info) = info else {
+                        continue;
+                    };
+                    // A load that started later keeps its result.
+                    let slot = this.worktree_info.entry(path).or_default();
+                    if slot.0 < epoch {
+                        *slot = (epoch, info);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Reload only the working-tree status and the shown file diff.
@@ -419,6 +579,8 @@ impl GitApp {
                 this.paused = paused;
                 this.ensure_change_selection(cx);
                 this.load_change_diff(cx);
+                // This worktree's row in the sidebar.
+                this.load_worktree_info(true, cx);
                 cx.notify();
             });
         })
@@ -917,6 +1079,7 @@ impl GitApp {
         let Some(s) = crate::session::load().repos.remove(&root) else {
             return;
         };
+        self.restored = true;
         self.view = match s.view.as_str() {
             "changes" => View::Changes,
             v => match v.strip_prefix("stash:").and_then(|n| n.parse().ok()) {
@@ -1297,6 +1460,11 @@ impl GitApp {
 pub(super) enum AppEvent {
     /// Open this repository in a tab, or show its tab.
     Open(PathBuf),
+    /// Open this worktree in a tab, on its Changes view when it is new, or
+    /// show its tab.
+    OpenWorktree(PathBuf),
+    /// This worktree is gone: close its tab.
+    Forget(PathBuf),
     /// A git operation started (true) or ended (false).
     Busy(bool),
     /// Show a toast: success (true), error (false) or information (None).
@@ -1487,6 +1655,21 @@ fn fmt_int(n: usize) -> String {
         .map(|g| std::str::from_utf8(g).unwrap_or_default())
         .collect();
     groups.join(",")
+}
+
+/// A short age for narrow rows: "now", "3m", "5h", "2d", then a date.
+fn fmt_age(ts: i64) -> String {
+    use chrono::{Local, TimeZone as _};
+    let Some(at) = Local.timestamp_opt(ts, 0).single() else {
+        return String::new();
+    };
+    match (Local::now() - at).num_seconds() {
+        s if s < 60 => "now".into(),
+        s if s < 3600 => format!("{}m", s / 60),
+        s if s < 86_400 => format!("{}h", s / 3600),
+        s if s < 7 * 86_400 => format!("{}d", s / 86_400),
+        _ => at.format("%b %-d").to_string(),
+    }
 }
 
 /// "3m ago" within a week, then a date.

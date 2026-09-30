@@ -189,7 +189,7 @@ impl GitApp {
         );
     }
 
-    fn delete_branch(&mut self, name: String, cx: &mut Context<Self>) {
+    pub(super) fn delete_branch(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.clone() else {
             return;
         };

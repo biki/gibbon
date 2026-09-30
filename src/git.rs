@@ -1378,6 +1378,196 @@ pub fn push(repo: &Repo, head: &HeadInfo) -> Result<String> {
     repo.git(&["push", "-u", remote.as_str(), "HEAD"])
 }
 
+/// The branch that other branches start from: the default branch of a
+/// remote (origin first), as the local branch of that name when there is
+/// one. Else `main` or `master`. A full ref name.
+pub fn base_branch(repo: &Repo) -> Option<String> {
+    let exists = |r: &str| repo.git(&["rev-parse", "-q", "--verify", r]).is_ok();
+    let mut names: Vec<String> = repo
+        .git(&["remote"])
+        .map(|s| s.lines().map(str::to_string).collect())
+        .unwrap_or_default();
+    names.sort_by_key(|n| n != "origin");
+    for remote in names {
+        let head = format!("refs/remotes/{remote}/HEAD");
+        let Ok(target) = repo.git(&["symbolic-ref", "-q", head.as_str()]) else {
+            continue;
+        };
+        let target = target.trim();
+        let Some(name) = target.strip_prefix(&format!("refs/remotes/{remote}/")) else {
+            continue;
+        };
+        let local = format!("refs/heads/{name}");
+        return Some(if exists(&local) { local } else { target.to_string() });
+    }
+    ["refs/heads/main", "refs/heads/master"]
+        .into_iter()
+        .find(|r| exists(r))
+        .map(str::to_string)
+}
+
+// ---------------------------------------------------------------------------
+// Worktrees
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Worktree {
+    pub path: PathBuf,
+    pub head: Option<String>,
+    /// Full ref name, `refs/heads/x`. None when detached.
+    pub branch: Option<String>,
+    /// The first worktree: the one with the `.git` folder.
+    pub main: bool,
+    pub locked: bool,
+    /// Its folder is gone. `git worktree prune` forgets it.
+    pub prunable: bool,
+}
+
+impl Worktree {
+    /// `feature/x` for `refs/heads/feature/x`.
+    pub fn branch_name(&self) -> Option<&str> {
+        let b = self.branch.as_deref()?;
+        Some(b.strip_prefix("refs/heads/").unwrap_or(b))
+    }
+
+    /// The name of its folder.
+    pub fn folder(&self) -> String {
+        self.path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.path.display().to_string())
+    }
+
+    /// The worktree as a repository, to run git in it.
+    pub fn repo(&self) -> Repo {
+        Repo {
+            root: self.path.clone(),
+            name: self.folder(),
+        }
+    }
+}
+
+/// The worktrees of the repository, the main one first. Bare entries are
+/// left out: they have no files.
+pub fn worktrees(repo: &Repo) -> Result<Vec<Worktree>> {
+    Ok(parse_worktrees(&repo.git(&["worktree", "list", "--porcelain"])?))
+}
+
+fn parse_worktrees(text: &str) -> Vec<Worktree> {
+    let mut list = Vec::new();
+    for block in text.split("\n\n") {
+        let mut wt = Worktree {
+            path: PathBuf::new(),
+            head: None,
+            branch: None,
+            main: list.is_empty(),
+            locked: false,
+            prunable: false,
+        };
+        let mut bare = false;
+        for line in block.lines() {
+            let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+            match key {
+                "worktree" => wt.path = PathBuf::from(value),
+                "HEAD" => wt.head = Some(value.to_string()),
+                "branch" => wt.branch = Some(value.to_string()),
+                "bare" => bare = true,
+                "locked" => wt.locked = true,
+                "prunable" => wt.prunable = true,
+                _ => {}
+            }
+        }
+        if wt.path.as_os_str().is_empty() {
+            continue;
+        }
+        // Symlinks such as /tmp → /private/tmp: compare the real paths.
+        if let Ok(real) = wt.path.canonicalize() {
+            wt.path = real;
+        }
+        if !bare {
+            list.push(wt);
+        }
+    }
+    list
+}
+
+/// What a worktree holds now.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorktreeInfo {
+    /// Changed files: staged, unstaged and new.
+    pub changed: usize,
+    /// Commits of its HEAD that the base branch does not have, and the reverse.
+    pub ahead: u32,
+    pub behind: u32,
+    /// The subject of its HEAD commit.
+    pub subject: String,
+    /// The last change: the time of its HEAD commit or of its newest changed
+    /// file, whichever is later.
+    pub active: i64,
+    /// A cherry-pick, rebase or merge stopped on a conflict there.
+    pub paused: Option<Paused>,
+}
+
+/// How far `wt` is from `base` (a ref), and what changed in it.
+pub fn worktree_info(wt: &Worktree, base: Option<&str>) -> Result<WorktreeInfo> {
+    let r = wt.repo();
+    let changes = status(&r)?;
+    let mut info = WorktreeInfo {
+        changed: changes.len(),
+        paused: paused(&r),
+        ..Default::default()
+    };
+    if let Ok(out) = r.git(&["log", "-1", "--format=%ct%x1f%s", "HEAD"])
+        && let Some((time, subject)) = out.trim_end().split_once('\x1f')
+    {
+        info.active = time.parse().unwrap_or(0);
+        info.subject = subject.to_string();
+    }
+    // Stat a bounded number of files: an agent can make thousands.
+    for e in changes.iter().take(2_000) {
+        let modified = std::fs::metadata(wt.path.join(&e.path)).and_then(|m| m.modified());
+        if let Ok(t) = modified
+            && let Ok(d) = t.duration_since(std::time::UNIX_EPOCH)
+        {
+            info.active = info.active.max(d.as_secs() as i64);
+        }
+    }
+    if let Some(base) = base
+        && wt.head.is_some()
+    {
+        let range = format!("{base}...HEAD");
+        if let Ok(out) = r.git(&["rev-list", "--left-right", "--count", range.as_str()]) {
+            let mut it = out.split_whitespace();
+            info.behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            info.ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        }
+    }
+    Ok(info)
+}
+
+/// Remove a worktree and its folder. Git refuses when the worktree has
+/// changes, unless `force`: then the changes go too.
+pub fn remove_worktree(repo: &Repo, path: &Path, force: bool) -> Result<()> {
+    let path = path.to_string_lossy();
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&path);
+    repo.git(&args).map(|_| ())
+}
+
+/// Forget the worktrees whose folders are gone.
+pub fn prune_worktrees(repo: &Repo) -> Result<()> {
+    repo.git(&["worktree", "prune"]).map(|_| ())
+}
+
+/// The folder with the refs and the data of all worktrees: the `.git`
+/// folder of the main worktree.
+pub fn common_dir(repo: &Repo) -> Result<PathBuf> {
+    let out = repo.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    Ok(PathBuf::from(out.trim()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1734,6 +1924,56 @@ mod tests {
         abort_paused(r, Paused::Rebase).unwrap();
         assert_eq!(paused(r), None);
         assert_eq!(subjects(r), ["three", "two", "one"]);
+    }
+
+    #[test]
+    fn worktrees_list_count_and_remove() {
+        let t = temp_repo("worktrees");
+        let r = &t.0;
+        commit_file(r, "a.txt", "base", "base");
+        assert_eq!(base_branch(r).as_deref(), Some("refs/heads/main"));
+        let wt_path = r.root.join("agent-wt");
+        let wt_arg = wt_path.to_string_lossy().into_owned();
+        r.git(&["worktree", "add", "-q", "-b", "agent", wt_arg.as_str()]).unwrap();
+
+        let list = worktrees(r).unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list[0].main && !list[1].main);
+        assert_eq!(list[0].path, r.root.canonicalize().unwrap());
+        let wt = &list[1];
+        assert_eq!(wt.path, wt_path.canonicalize().unwrap());
+        assert_eq!(wt.branch_name(), Some("agent"));
+        assert_eq!(wt.folder(), "agent-wt");
+
+        // The agent commits once and leaves one file changed.
+        let a = wt.repo();
+        commit_file(&a, "b.txt", "one", "agent one");
+        std::fs::write(wt.path.join("c.txt"), "new\n").unwrap();
+        let info = worktree_info(wt, Some("refs/heads/main")).unwrap();
+        assert_eq!((info.changed, info.ahead, info.behind), (1, 1, 0));
+        assert_eq!(info.subject, "agent one");
+        assert!(info.active > 0);
+        assert_eq!(info.paused, None);
+
+        // A changed worktree needs force.
+        assert!(remove_worktree(r, &wt.path, false).is_err());
+        remove_worktree(r, &wt.path, true).unwrap();
+        assert!(!wt.path.exists());
+        assert_eq!(worktrees(r).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn worktree_list_parsing() {
+        let text = "worktree /r\nHEAD 1111\nbranch refs/heads/main\n\n\
+                    worktree /r-bare\nbare\n\n\
+                    worktree /gone\nHEAD 2222\ndetached\nlocked why\nprunable gitdir file points to non-existent location\n";
+        let list = parse_worktrees(text);
+        assert_eq!(list.len(), 2, "the bare entry is left out");
+        assert_eq!(list[0].branch_name(), Some("main"));
+        assert!(list[0].main && !list[0].locked);
+        assert_eq!(list[1].path, PathBuf::from("/gone"));
+        assert_eq!(list[1].branch, None);
+        assert!(!list[1].main && list[1].locked && list[1].prunable);
     }
 
     #[test]

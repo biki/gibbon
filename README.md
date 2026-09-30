@@ -77,6 +77,20 @@ Right-click a commit ▸ **Interactive Rebase from Here…**. Set *pick*,
 *reword*, *squash*, *fixup* or *drop* per commit and reorder them. Uncommitted
 changes are stashed first and restored after.
 
+### Worktrees
+
+Agents often work in worktrees of their own. When a repository has more than
+one worktree, the sidebar lists them:
+
+- Each row shows the worktree's branch, its changed files, the commits it has
+  that the base branch does not have, and the time of its last change. The
+  base branch is the default branch of the remote, else `main` or `master`.
+- The rows update while agents edit, stage and commit in their worktrees.
+- Click a row to open that worktree in a tab, on its Changes view.
+- Right-click a row to browse its commits, open it in Finder, copy its path,
+  or remove it, with or without its branch. Gibbon asks first, and tells you
+  how many changed files you lose.
+
 ### Branches, stashes and conflicts
 
 - Create, rename, delete and switch branches (double-click to switch).
@@ -167,8 +181,8 @@ keychain has one, and ad hoc otherwise.
 - Hunk and line staging works for changed text files. New, deleted and binary
   files stage as a whole.
 - The split view cuts lines at 1,200 characters and has no horizontal scroll.
-- The file watcher reads the top-level `.gitignore` only, so ignored files in
-  deeper folders can cause extra (harmless) refreshes.
+- The file watcher reads the top-level `.gitignore` of each worktree only, so
+  ignored files in deeper folders can cause extra (harmless) refreshes.
 - Interactive rebase flattens merge commits and has no *edit* or *exec* step.
 - Pull requests: open ones only, no reviews or comments.
 - No in-app updates and no notarized builds yet.
