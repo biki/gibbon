@@ -4,11 +4,11 @@ Ideas for Gibbon, most useful first. Much Git work is done by agents now.
 So the goal of this list is to help you see, review and repair the work that
 agents do on a repository.
 
-Status: **in progress**, **planned** or **idea**.
+Status: **done**, **in progress**, **planned** or **idea**.
 
 ## Big items
 
-### 1. Worktrees in the sidebar — in progress
+### 1. Worktrees in the sidebar — done (first version)
 
 Parallel agents (Claude Code, Codex, Conductor) often each work in a linked
 worktree. Gibbon did not list worktrees, and its file watcher did not see
@@ -22,7 +22,14 @@ edits in other worktrees.
 - Right-click a row to browse its commits, review its branch, open it in
   Finder, copy its path, or remove it (with or without its branch).
 
-### 2. Review a whole branch as one diff — in progress
+Next steps:
+
+- **New Worktree…** — idea. Make a worktree and a branch from Gibbon, to
+  start an agent in it.
+- **Branch behind the base** — idea. The row shows the commits ahead only.
+  The tooltip shows both counts.
+
+### 2. Review a whole branch as one diff — done (first version)
 
 Agent branches often have many small commits, such as "fix lint" or
 "fix test". To review the result, you want one diff: `git diff base...branch`.
@@ -33,7 +40,17 @@ Agent branches often have many small commits, such as "fix lint" or
   file changes again.
 - For a worktree, the review can include its uncommitted changes.
 
-### 3. Activity timeline with undo — in progress
+Next steps:
+
+- **Uncommitted changes at start-up** — idea. A review that opens before the
+  worktree rows load does not see the worktree's changes, so the check starts
+  off. Only `GIBBON_REVIEW` hits this now.
+- **Commit list in the review** — idea. Show the commits of the branch beside
+  the files, and filter the diff to one commit.
+- **Comments** — idea. Notes on lines that you can copy into a prompt for the
+  agent.
+
+### 3. Activity timeline with undo — done (first version)
 
 Agents run `reset --hard`, `rebase`, `commit --amend` and `push --force`.
 Git's reflog records each move of each branch.
@@ -41,10 +58,19 @@ Git's reflog records each move of each branch.
 - An **Activity** view lists the moves of all branches, newest first:
   commits, amends, rebases, resets, merges, pulls and pushes.
 - Each move shows the commits that it added and the commits that it dropped.
-  A move that drops commits is marked as a rewrite.
+  A move that drops commits has a yellow icon and a red "dropped" count.
 - **Restore** moves a branch back to its place before or after a move.
   The restore is a move too, so you can undo it.
 - The moves that came in after your last visit are marked as new.
+
+Next steps:
+
+- **Show the change of a move** — idea. The diff from before a move to after
+  it, for example what a rebase changed in the files.
+- **Reftable repositories** — idea. Read the reflogs with `git reflog` when
+  the repository has no reflog files.
+- **Deleted branches** — idea. Git deletes the reflog of a deleted branch.
+  Keep its last commit, so a delete can be undone.
 
 ## Smaller items
 
