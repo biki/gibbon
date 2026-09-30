@@ -28,7 +28,7 @@ impl GitApp {
             let _ = this.update(cx, |this, cx| {
                 match plan {
                     Ok(plan) if plan.steps.is_empty() => {
-                        this.toast(None, "There are no commits to rebase.")
+                        this.toast(None, "There are no commits to rebase.", cx)
                     }
                     Ok(plan) => {
                         this.rebase = Some(RebaseUi {
@@ -37,7 +37,7 @@ impl GitApp {
                         });
                         this.view = View::Rebase;
                     }
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 cx.notify();
             });
@@ -93,7 +93,7 @@ impl GitApp {
             }
         }
         if let Some(problem) = git::check_plan(&plan) {
-            self.toast(Some(false), problem);
+            self.toast(Some(false), problem, cx);
             self.rebase = Some(RebaseUi {
                 plan,
                 inputs: ui.inputs,

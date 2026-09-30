@@ -85,8 +85,7 @@ impl GitApp {
                     return;
                 };
                 if let Some(err) = git::check_branch_name(&repo, &name) {
-                    this.toast(Some(false), err);
-                    cx.notify();
+                    this.toast(Some(false), err, cx);
                     return;
                 }
                 let start = start.as_ref().map(|(s, _)| s.clone());
@@ -127,8 +126,7 @@ impl GitApp {
                     return;
                 }
                 if let Some(err) = git::check_branch_name(&repo, &name) {
-                    this.toast(Some(false), err);
-                    cx.notify();
+                    this.toast(Some(false), err, cx);
                     return;
                 }
                 let old = old.clone();
@@ -178,7 +176,7 @@ impl GitApp {
             let _ = window.update(cx, |_, window, cx| {
                 let _ = this.update(cx, |this, cx| match result {
                     Ok(()) => {
-                        this.toast(Some(true), format!("Deleted {name}"));
+                        this.toast(Some(true), format!("Deleted {name}"), cx);
                         this.reload(cx);
                     }
                     Err(e) if e.to_string().contains("not fully merged") => {
@@ -205,10 +203,7 @@ impl GitApp {
                             cx,
                         );
                     }
-                    Err(e) => {
-                        this.toast(Some(false), e.to_string());
-                        cx.notify();
-                    }
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 });
             });
         })

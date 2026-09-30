@@ -46,7 +46,7 @@ impl GitApp {
                         this.stash_styles =
                             Some(Rc::new(styles.into_iter().map(Rc::new).collect()));
                     }
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 cx.notify();
             });
@@ -56,8 +56,7 @@ impl GitApp {
 
     pub(super) fn stash_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.status.is_empty() {
-            self.toast(None, "There are no changes to stash.");
-            cx.notify();
+            self.toast(None, "There are no changes to stash.", cx);
             return;
         }
         let n = self.status.len();

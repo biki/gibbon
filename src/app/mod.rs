@@ -108,7 +108,6 @@ pub struct GitApp {
     /// Closed folders of the file trees: (list, folder path).
     collapsed_dirs: HashSet<(&'static str, String)>,
     busy: Option<SharedString>,
-    toasts: Vec<(Option<bool>, String)>,
     log_scroll: UniformListScrollHandle,
     side_scroll: UniformListScrollHandle,
     /// A restored selection, applied when the log or the commit loads.
@@ -185,7 +184,6 @@ impl GitApp {
             collapsed: HashSet::from(["tags"]),
             collapsed_dirs: HashSet::new(),
             busy: None,
-            toasts: vec![],
             log_scroll: UniformListScrollHandle::new(),
             side_scroll: UniformListScrollHandle::new(),
             pending_commit: None,
@@ -206,8 +204,17 @@ impl GitApp {
         self.focus.clone()
     }
 
-    fn toast(&mut self, ok: Option<bool>, msg: impl Into<String>) {
-        self.toasts.push((ok, msg.into()));
+    /// Ask the window to show a toast.
+    fn toast(&mut self, ok: Option<bool>, msg: impl Into<String>, cx: &mut Context<Self>) {
+        cx.emit(AppEvent::Toast(ok, msg.into()));
+    }
+
+    /// Set what runs. The tab strip shows a spinner while it runs.
+    fn set_busy(&mut self, busy: Option<SharedString>, cx: &mut Context<Self>) {
+        if self.busy.is_some() != busy.is_some() {
+            cx.emit(AppEvent::Busy(busy.is_some()));
+        }
+        self.busy = busy;
     }
 
     // -----------------------------------------------------------------------
@@ -250,11 +257,11 @@ impl GitApp {
                 this.refs_loaded = true;
                 match branches {
                     Ok(b) => this.branches = b,
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 match status {
                     Ok(s) => this.status = s,
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 this.paused = paused;
                 this.stashes = stashes.unwrap_or_default();
@@ -298,7 +305,7 @@ impl GitApp {
         let (watcher, mut rx) = match started {
             Ok(w) => w,
             Err(e) => {
-                self.toast(None, format!("Automatic refresh is off: {e}"));
+                self.toast(None, format!("Automatic refresh is off: {e}"), cx);
                 return;
             }
         };
@@ -419,7 +426,7 @@ impl GitApp {
                         }
                         this.load_detail(cx);
                     }
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 cx.notify();
             });
@@ -463,7 +470,7 @@ impl GitApp {
                         this.detail = Some(Rc::new(d));
                         this.highlight_detail(cx);
                     }
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 cx.notify();
             });
@@ -534,7 +541,7 @@ impl GitApp {
                         this.change_diff = d.map(Rc::new);
                         this.change_styles = styles.map(Rc::new);
                     }
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 cx.notify();
             });
@@ -697,7 +704,7 @@ impl GitApp {
         if self.busy.is_some() {
             return;
         }
-        self.busy = Some(label.to_string().into());
+        self.set_busy(Some(label.to_string().into()), cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -708,11 +715,11 @@ impl GitApp {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.busy = None;
+                this.set_busy(None, cx);
                 match result {
                     (Ok(_), _) => {
                         if let Some(msg) = ok_msg {
-                            this.toast(Some(true), msg);
+                            this.toast(Some(true), msg, cx);
                         }
                     }
                     (Err(_), Some(p)) => {
@@ -724,9 +731,10 @@ impl GitApp {
                                  stage them, then click Continue.",
                                 p.name().to_lowercase()
                             ),
+                            cx,
                         );
                     }
-                    (Err(e), None) => this.toast(Some(false), e.to_string()),
+                    (Err(e), None) => this.toast(Some(false), e.to_string(), cx),
                 }
                 this.reload(cx);
                 cx.notify();
@@ -902,8 +910,7 @@ impl GitApp {
         });
         if shas.is_empty() {
             let head = self.head_name();
-            self.toast(None, format!("Select commits that {head} does not have yet."));
-            cx.notify();
+            self.toast(None, format!("Select commits that {head} does not have yet."), cx);
             return;
         }
         let n = shas.len();
@@ -954,7 +961,7 @@ impl GitApp {
         if self.busy.is_some() {
             return;
         }
-        self.busy = Some(format!("Fetching #{}…", pr.number).into());
+        self.set_busy(Some(format!("Fetching #{}…", pr.number).into()), cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let p = pr.clone();
@@ -963,10 +970,10 @@ impl GitApp {
                 .spawn(async move { crate::github::fetch(&repo, &p) })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.busy = None;
+                this.set_busy(None, cx);
                 match result {
                     Ok(()) => this.show_target(LogTarget::Ref(pr.refname()), cx),
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 cx.notify();
             });
@@ -996,17 +1003,15 @@ impl GitApp {
             return;
         }
         if !self.status.iter().any(|e| e.staged.is_some()) {
-            self.toast(None, "Stage the changes to commit first.");
-            cx.notify();
+            self.toast(None, "Stage the changes to commit first.", cx);
             return;
         }
         let msg = self.message.read(cx).value().to_string();
         if msg.trim().is_empty() {
-            self.toast(None, "Write a commit message first.");
-            cx.notify();
+            self.toast(None, "Write a commit message first.", cx);
             return;
         }
-        self.busy = Some("Committing…".into());
+        self.set_busy(Some("Committing…".into()), cx);
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -1014,14 +1019,14 @@ impl GitApp {
                 .spawn(async move { git::commit(&repo, &msg) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.busy = None;
+                this.set_busy(None, cx);
                 match result {
                     Ok(_) => {
                         this.message
                             .update(cx, |m, cx| m.set_value("", window, cx));
-                        this.toast(Some(true), "Committed");
+                        this.toast(Some(true), "Committed", cx);
                     }
-                    Err(e) => this.toast(Some(false), e.to_string()),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 this.reload(cx);
                 cx.notify();
@@ -1195,6 +1200,10 @@ impl GitApp {
 pub(super) enum AppEvent {
     /// Open this repository in a tab, or show its tab.
     Open(PathBuf),
+    /// A git operation started (true) or ended (false).
+    Busy(bool),
+    /// Show a toast: success (true), error (false) or information (None).
+    Toast(Option<bool>, String),
 }
 
 impl EventEmitter<AppEvent> for GitApp {}

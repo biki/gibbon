@@ -8,6 +8,9 @@ struct Tab {
     repo: Repo,
     /// Made when the tab is first shown, so a restart loads only one tab.
     app: Option<Entity<GitApp>>,
+    /// A git operation runs (`AppEvent::Busy`). Render reads this flag, not
+    /// the tab: a tab that render reads redraws the window on each change.
+    busy: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -60,6 +63,7 @@ impl Workspace {
                     root,
                 },
                 app: None,
+                busy: false,
                 _subs: vec![],
             })
             .collect();
@@ -108,6 +112,7 @@ impl Workspace {
                 self.tabs.push(Tab {
                     repo,
                     app: None,
+                    busy: false,
                     _subs: vec![],
                 });
                 self.tabs.len() - 1
@@ -144,15 +149,10 @@ impl Workspace {
             Some(app) => app.clone(),
             None => {
                 let app = cx.new(|cx| GitApp::new(window, cx));
+                // Before opening: opening can already send events.
+                tab._subs = vec![cx.subscribe_in(&app, window, Self::on_app_event)];
                 let repo = tab.repo.clone();
                 app.update(cx, |app, cx| app.open_repo(repo, cx));
-                tab._subs = vec![
-                    // The tab strip shows what each tab is doing.
-                    cx.observe(&app, |_, _, cx| cx.notify()),
-                    cx.subscribe_in(&app, window, |this, _, event, window, cx| match event {
-                        AppEvent::Open(path) => this.open(path.clone(), window, cx),
-                    }),
-                ];
                 tab.app = Some(app.clone());
                 app
             }
@@ -190,21 +190,38 @@ impl Workspace {
         }
     }
 
-    /// Toasts of every tab. A background tab's toasts name its repository.
-    fn show_toasts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let mut all = std::mem::take(&mut self.toasts);
-        for (ix, tab) in self.tabs.iter().enumerate() {
-            let Some(app) = &tab.app else { continue };
-            let toasts = app.update(cx, |app, _| std::mem::take(&mut app.toasts));
-            all.extend(toasts.into_iter().map(|(ok, msg)| {
-                if ix == self.active {
-                    (ok, msg)
+    fn on_app_event(
+        &mut self,
+        app: &Entity<GitApp>,
+        event: &AppEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ix) = self.tabs.iter().position(|t| t.app.as_ref() == Some(app)) else {
+            return;
+        };
+        match event {
+            AppEvent::Open(path) => self.open(path.clone(), window, cx),
+            AppEvent::Busy(busy) => {
+                self.tabs[ix].busy = *busy;
+                cx.notify();
+            }
+            AppEvent::Toast(ok, msg) => {
+                // A hidden tab's toasts name its repository.
+                let msg = if ix == self.active {
+                    msg.clone()
                 } else {
-                    (ok, format!("{}: {msg}", tab.repo.name))
-                }
-            }));
+                    format!("{}: {msg}", self.tabs[ix].repo.name)
+                };
+                self.toasts.push((*ok, msg));
+                cx.notify();
+            }
         }
-        for (ok, msg) in all {
+    }
+
+    /// Toasts of the tabs and of the window.
+    fn show_toasts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (ok, msg) in std::mem::take(&mut self.toasts) {
             window.defer(cx, move |window, cx| {
                 let note = match ok {
                     Some(true) => Notification::success(msg),
@@ -281,10 +298,7 @@ impl Workspace {
         let muted = t.colors.muted_foreground;
         let tab = &self.tabs[ix];
         let active = ix == self.active;
-        let busy = tab
-            .app
-            .as_ref()
-            .is_some_and(|app| app.read(cx).busy.is_some());
+        let busy = tab.busy;
         let path: SharedString = tab.repo.root.display().to_string().into();
         h_flex()
             .id(("tab", ix))
