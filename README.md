@@ -43,6 +43,8 @@ behind the Zed editor.
 - Syntax colors for about 35 languages (tree-sitter).
 - Word-level highlights show exactly what changed inside a line.
 - Unified or split (side-by-side) view.
+- Changed files show as a list sorted by name (A to Z or Z to A) or as a
+  tree of folders. All file lists use the same choice.
 
 ### Staging
 

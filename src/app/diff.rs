@@ -587,6 +587,7 @@ fn code(line: &DiffLine, i: usize, styles: Option<&DiffStyles>, cx: &App) -> imp
 pub(super) fn file_row(
     f: &FileDiff,
     selected: bool,
+    depth: Option<usize>,
     id: impl Into<ElementId>,
     cx: &App,
 ) -> Stateful<Div> {
@@ -609,14 +610,16 @@ pub(super) fn file_row(
                 .text_color(cx.theme().colors.red)
                 .child(format!("−{}", f.deletions)),
         );
-    path_row(&f.path, letter, selected, id, cx).child(counts)
+    path_row(&f.path, letter, selected, depth, id, cx).child(counts)
 }
 
-/// Name first, folder after it in muted text.
+/// Name first, folder after it in muted text. At a `depth` of a tree, the
+/// row is indented and the folder rows above it show the folder.
 pub(super) fn path_row(
     path: &str,
     change: git::Change,
     selected: bool,
+    depth: Option<usize>,
     id: impl Into<ElementId>,
     cx: &App,
 ) -> Stateful<Div> {
@@ -630,6 +633,7 @@ pub(super) fn path_row(
         .w_full()
         .h(px(28.))
         .px_2()
+        .when_some(depth, |d, n| d.pl(files::file_indent(n)))
         .gap_2()
         .rounded(t.radius)
         .cursor_pointer()
@@ -642,15 +646,21 @@ pub(super) fn path_row(
                 .min_w_0()
                 .gap_1p5()
                 .overflow_hidden()
-                .child(div().flex_none().child(name))
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(11.))
-                        .text_color(t.colors.muted_foreground)
-                        .child(dir),
-                ),
+                // Without the folder beside it, a long name shrinks instead.
+                .child(match depth {
+                    Some(_) => div().min_w_0().truncate().child(name),
+                    None => div().flex_none().child(name),
+                })
+                .when(depth.is_none(), |d| {
+                    d.child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(11.))
+                            .text_color(t.colors.muted_foreground)
+                            .child(dir),
+                    )
+                }),
         )
 }
 

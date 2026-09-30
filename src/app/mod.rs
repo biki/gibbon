@@ -25,6 +25,7 @@ use crate::git::{
 use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
 use diff::{DiffCtx, DiffMode};
+use files::FileRow;
 use crate::{
     CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowAllBranches,
     ShowChanges, ShowHistory,
@@ -40,6 +41,7 @@ mod palette;
 mod rebase;
 mod settings_ui;
 mod diff;
+mod files;
 mod history;
 mod sidebar;
 mod stash;
@@ -101,6 +103,8 @@ pub struct GitApp {
     /// A dialog to open on the first frame (UI checks).
     check_dialog: Option<String>,
     collapsed: HashSet<&'static str>,
+    /// Closed folders of the file trees: (list, folder path).
+    collapsed_dirs: HashSet<(&'static str, String)>,
     busy: Option<SharedString>,
     toasts: Vec<(Option<bool>, String)>,
     log_scroll: UniformListScrollHandle,
@@ -182,6 +186,7 @@ impl GitApp {
             prompt_sub: None,
             check_dialog: None,
             collapsed: HashSet::from(["tags"]),
+            collapsed_dirs: HashSet::new(),
             busy: None,
             toasts: vec![],
             log_scroll: UniformListScrollHandle::new(),
@@ -315,7 +320,7 @@ impl GitApp {
                 {
                     this.target = LogTarget::Head;
                 }
-                this.ensure_change_selection();
+                this.ensure_change_selection(cx);
                 this.load_change_diff(cx);
                 this.load_log(cx);
                 cx.notify();
@@ -390,7 +395,7 @@ impl GitApp {
                     this.status = s;
                 }
                 this.paused = paused;
-                this.ensure_change_selection();
+                this.ensure_change_selection(cx);
                 this.load_change_diff(cx);
                 cx.notify();
             });
@@ -480,7 +485,13 @@ impl GitApp {
                 match result {
                     Ok(d) => {
                         let n = d.files.len();
-                        this.detail_file = this.pending_file.take().filter(|&i| i < n).unwrap_or(0);
+                        let first = this.first_file("commit", &files::paths(&d.files), cx);
+                        this.detail_file = this
+                            .pending_file
+                            .take()
+                            .filter(|&i| i < n)
+                            .or(first)
+                            .unwrap_or(0);
                         this.detail = Some(Rc::new(d));
                         this.highlight_detail(cx);
                     }
@@ -493,7 +504,7 @@ impl GitApp {
     }
 
     /// Keep a working-tree file selected while there are changes.
-    fn ensure_change_selection(&mut self) {
+    fn ensure_change_selection(&mut self, cx: &App) {
         let valid = self.change_sel.as_ref().is_some_and(|(path, staged)| {
             self.status.iter().any(|e| {
                 &e.path == path
@@ -504,20 +515,14 @@ impl GitApp {
                     }
             })
         });
-        if valid {
-            return;
-        }
-        self.change_sel = self
-            .status
-            .iter()
-            .find(|e| e.staged.is_some())
-            .map(|e| (e.path.clone(), true))
-            .or_else(|| {
+        if !valid {
+            // The first file shown, or any file when all folders are closed.
+            self.change_sel = self.first_change(cx).or_else(|| {
                 self.status
-                    .iter()
-                    .find(|e| e.unstaged.is_some())
-                    .map(|e| (e.path.clone(), false))
+                    .first()
+                    .map(|e| (e.path.clone(), e.staged.is_some()))
             });
+        }
     }
 
     fn load_change_diff(&mut self, cx: &mut Context<Self>) {
@@ -1459,10 +1464,23 @@ impl Render for GitApp {
     }
 }
 
+/// What a segment shows: a word, or an icon with a tooltip.
+#[derive(Clone, Copy)]
+pub(super) enum Segment {
+    Text(&'static str),
+    Icon(IconName, &'static str),
+}
+
+impl From<&'static str> for Segment {
+    fn from(text: &'static str) -> Self {
+        Segment::Text(text)
+    }
+}
+
 /// A segmented control: the chosen option is an accent pill.
-pub(super) fn segmented<T: Copy + PartialEq + 'static>(
+pub(super) fn segmented<L: Into<Segment> + Copy, T: Copy + PartialEq + 'static>(
     id: &'static str,
-    options: &[(&'static str, T)],
+    options: &[(L, T)],
     current: T,
     on_change: impl Fn(T, &mut Window, &mut App) + 'static,
     cx: &App,
@@ -1479,6 +1497,10 @@ pub(super) fn segmented<T: Copy + PartialEq + 'static>(
         .children(options.iter().enumerate().map(|(i, &(label, value))| {
             let selected = value == current;
             let cb = on_change.clone();
+            let (content, tip) = match label.into() {
+                Segment::Text(text) => (text.into_any_element(), None),
+                Segment::Icon(icon, tip) => (Icon::new(icon).size(px(14.)).into_any_element(), Some(tip)),
+            };
             div()
                 .id((id, i))
                 .h(px(22.))
@@ -1497,7 +1519,12 @@ pub(super) fn segmented<T: Copy + PartialEq + 'static>(
                     d.text_color(t.colors.muted_foreground)
                         .hover(|d| d.text_color(t.colors.foreground))
                 })
-                .child(label)
+                .child(content)
+                .when_some(tip, |d, tip| {
+                    d.tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
+                    })
+                })
                 .on_click(move |_, window, cx| cb(value, window, cx))
         }))
 }

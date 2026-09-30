@@ -40,6 +40,8 @@ impl GitApp {
                 }
                 match result {
                     Ok((d, styles)) => {
+                        let first = this.first_file("stash", &files::paths(&d.files), cx);
+                        this.stash_file = first.unwrap_or(0);
                         this.stash_detail = Some(Rc::new(d));
                         this.stash_styles =
                             Some(Rc::new(styles.into_iter().map(Rc::new).collect()));
@@ -200,20 +202,24 @@ impl GitApp {
                 )
                 .into_any_element();
         };
-        let n = d.files.len();
+        let rows = Rc::new(self.file_rows("stash", &files::paths(&d.files), cx));
         let files = d.clone();
         let list = uniform_list(
             "stash-files",
-            n,
+            rows.len(),
             cx.processor(move |this, range: Range<usize>, _window, cx| {
                 range
-                    .map(|i| {
-                        diff::file_row(&files.files[i], this.stash_file == i, ("stash-file", i), cx)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.stash_file = i;
-                                cx.notify();
-                            }))
-                            .into_any_element()
+                    .map(|i| match rows[i] {
+                        FileRow::Dir(ref dir) => this.dir_row("stash", dir, ("stash-dir", i), cx),
+                        FileRow::File { ix, depth } => {
+                            let selected = this.stash_file == ix;
+                            diff::file_row(&files.files[ix], selected, depth, ("stash-file", ix), cx)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.stash_file = ix;
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        }
                     })
                     .collect::<Vec<_>>()
             }),
@@ -242,6 +248,13 @@ impl GitApp {
                                     .size_full()
                                     .border_r_1()
                                     .border_color(border)
+                                    .child(
+                                        // As tall as the diff header beside it.
+                                        files::files_bar(&d.files, cx)
+                                            .h(px(36.))
+                                            .border_b_1()
+                                            .border_color(border),
+                                    )
                                     .child(list),
                             ),
                     )

@@ -9,39 +9,56 @@ use super::*;
 
 enum Row {
     Header { staged: bool, count: usize },
-    File { entry: usize, staged: bool },
+    Dir { staged: bool, dir: files::Dir },
+    File { entry: usize, staged: bool, depth: Option<usize> },
+}
+
+/// The file tree of each side keeps its own closed folders.
+fn scope(staged: bool) -> &'static str {
+    if staged { "staged" } else { "unstaged" }
 }
 
 impl GitApp {
-    fn change_rows(&self) -> Vec<Row> {
-        let staged: Vec<usize> = (0..self.status.len())
-            .filter(|&i| self.status[i].staged.is_some())
-            .collect();
-        let unstaged: Vec<usize> = (0..self.status.len())
-            .filter(|&i| self.status[i].unstaged.is_some())
-            .collect();
+    /// Staged files, then unstaged files, each in the view of the settings.
+    fn change_rows(&self, cx: &App) -> Vec<Row> {
         let mut rows = Vec::new();
-        if !staged.is_empty() {
+        for staged in [true, false] {
+            let entries: Vec<usize> = (0..self.status.len())
+                .filter(|&i| {
+                    let e = &self.status[i];
+                    if staged { e.staged.is_some() } else { e.unstaged.is_some() }
+                })
+                .collect();
+            if entries.is_empty() {
+                continue;
+            }
             rows.push(Row::Header {
-                staged: true,
-                count: staged.len(),
+                staged,
+                count: entries.len(),
             });
-            rows.extend(staged.into_iter().map(|entry| Row::File {
-                entry,
-                staged: true,
-            }));
-        }
-        if !unstaged.is_empty() {
-            rows.push(Row::Header {
-                staged: false,
-                count: unstaged.len(),
-            });
-            rows.extend(unstaged.into_iter().map(|entry| Row::File {
-                entry,
-                staged: false,
-            }));
+            let paths: Vec<&str> = entries.iter().map(|&i| self.status[i].path.as_str()).collect();
+            rows.extend(
+                self.file_rows(scope(staged), &paths, cx)
+                    .into_iter()
+                    .map(|r| match r {
+                        FileRow::Dir(dir) => Row::Dir { staged, dir },
+                        FileRow::File { ix, depth } => Row::File {
+                            entry: entries[ix],
+                            staged,
+                            depth,
+                        },
+                    }),
+            );
         }
         rows
+    }
+
+    /// The first file that the Changes list shows: (path, staged side).
+    pub(super) fn first_change(&self, cx: &App) -> Option<(String, bool)> {
+        self.change_rows(cx).into_iter().find_map(|r| match r {
+            Row::File { entry, staged, .. } => Some((self.status[entry].path.clone(), staged)),
+            _ => None,
+        })
     }
 
     pub(super) fn render_changes(
@@ -50,7 +67,7 @@ impl GitApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (muted, border) = (cx.theme().colors.muted_foreground, cx.theme().colors.border);
-        let rows = Rc::new(self.change_rows());
+        let rows = Rc::new(self.change_rows(cx));
         let n = rows.len();
         let staged = self.status.iter().filter(|e| e.staged.is_some()).count();
         let list = if n == 0 {
@@ -126,12 +143,36 @@ impl GitApp {
                             .size_full()
                             .border_r_1()
                             .border_color(border)
+                            .when(n > 0, |d| d.child(self.render_changes_bar(cx)))
                             .when_some(self.paused, |d, p| d.child(self.render_paused_banner(p, cx)))
                             .child(list)
                             .child(commit_box),
                     ),
             )
             .child(resizable_panel().child(diff))
+    }
+
+    /// As tall as the diff header beside it.
+    fn render_changes_bar(&self, cx: &App) -> impl IntoElement {
+        let t = cx.theme();
+        let n = self.status.len();
+        h_flex()
+            .flex_none()
+            .h(px(36.))
+            .px_3()
+            .gap_2()
+            .border_b_1()
+            .border_color(t.colors.border)
+            .text_size(px(12.))
+            .text_color(t.colors.muted_foreground)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(format!("{n} changed file{}", history::plural(n))),
+            )
+            .child(files::view_buttons(cx))
     }
 
     fn render_paused_banner(&self, p: git::Paused, cx: &mut Context<Self>) -> impl IntoElement {
@@ -225,6 +266,7 @@ impl GitApp {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         match *row {
+            Row::Dir { staged, ref dir } => self.dir_row(scope(staged), dir, ("change-dir", ix), cx),
             Row::Header { staged, count } => h_flex()
                 .w_full()
                 .h(px(30.))
@@ -288,7 +330,11 @@ impl GitApp {
                         })),
                 )
                 .into_any_element(),
-            Row::File { entry, staged } => {
+            Row::File {
+                entry,
+                staged,
+                depth,
+            } => {
                 let e = &self.status[entry];
                 let change = if staged { e.staged } else { e.unstaged }
                     .unwrap_or(git::Change::Modified);
@@ -297,7 +343,7 @@ impl GitApp {
                 let entry_menu = e.clone();
                 let root = self.repo.as_ref().map(|r| r.root.clone());
                 let this = cx.entity();
-                diff::path_row(&e.path, change, selected, ("change", ix), cx)
+                diff::path_row(&e.path, change, selected, depth, ("change", ix), cx)
                     .child(
                         Button::new(("stage", ix))
                             .ghost()

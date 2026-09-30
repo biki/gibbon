@@ -413,8 +413,6 @@ impl GitApp {
             Some((s, b)) => (s.to_string(), b.trim().to_string()),
             None => (d.message.clone(), String::new()),
         };
-        let adds: u32 = d.files.iter().map(|f| f.additions).sum();
-        let dels: u32 = d.files.iter().map(|f| f.deletions).sum();
         let multi = self.selected.len() > 1;
         let info = v_flex()
             .flex_none()
@@ -496,36 +494,25 @@ impl GitApp {
                             )
                     }),
             );
-        let files_header = h_flex()
-            .flex_none()
-            .h(px(30.))
-            .px_3()
-            .gap_2()
-            .text_size(px(12.))
-            .text_color(muted)
-            .child(div().flex_1().child(format!(
-                "{} file{} changed",
-                d.files.len(),
-                plural(d.files.len())
-            )))
-            .child(div().text_color(t.colors.green).child(format!("+{adds}")))
-            .child(div().text_color(t.colors.red).child(format!("−{dels}")));
-        let n = d.files.len();
-        let files = Rc::new(d.clone());
+        let files_header = files::files_bar(&d.files, cx);
+        let rows = Rc::new(self.file_rows("commit", &files::paths(&d.files), cx));
+        let files = d.clone();
         let file_list = uniform_list(
             "detail-files",
-            n,
+            rows.len(),
             cx.processor(move |this, range: Range<usize>, _window, cx| {
                 range
-                    .map(|i| {
-                        let f = &files.files[i];
-                        let selected = this.detail_file == i;
-                        diff::file_row(f, selected, ("detail-file", i), cx)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.detail_file = i;
-                                cx.notify();
-                            }))
-                            .into_any_element()
+                    .map(|i| match rows[i] {
+                        FileRow::Dir(ref dir) => this.dir_row("commit", dir, ("detail-dir", i), cx),
+                        FileRow::File { ix, depth } => {
+                            let selected = this.detail_file == ix;
+                            diff::file_row(&files.files[ix], selected, depth, ("detail-file", ix), cx)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.detail_file = ix;
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        }
                     })
                     .collect::<Vec<_>>()
             }),

@@ -25,6 +25,10 @@ pub struct Settings {
     pub code_size: f32,
     /// Diffs open side by side.
     pub split_diff: bool,
+    /// File lists show a tree of folders, not a flat list.
+    pub file_tree: bool,
+    /// File lists sort names Z to A.
+    pub file_sort_desc: bool,
     /// Interface font, an id from `fonts::UI_FONTS`.
     pub ui_font: String,
     /// Code font, an id from `fonts::CODE_FONTS`.
@@ -38,6 +42,8 @@ impl Default for Settings {
             ui_size: 13.,
             code_size: 12.,
             split_diff: false,
+            file_tree: false,
+            file_sort_desc: false,
             ui_font: crate::fonts::DEFAULT_UI.into(),
             code_font: crate::fonts::DEFAULT_CODE.into(),
         }
