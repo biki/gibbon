@@ -151,7 +151,7 @@ impl GitApp {
                 let viewed = file.as_ref().and_then(|_| self.viewed_check(cx));
                 return self.render_diff(file, styles, DiffCtx::Commit, "review-diff", viewed, memo, cx);
             }
-            View::Rebase => return div().into_any_element(),
+            View::Rebase | View::Activity => return div().into_any_element(),
         };
         self.render_diff(file, styles, ctx, id, None, memo, cx)
     }

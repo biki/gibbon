@@ -103,9 +103,26 @@ one worktree, the sidebar lists them:
   base branch is the default branch of the remote, else `main` or `master`.
 - The rows update while agents edit, stage and commit in their worktrees.
 - Click a row to open that worktree in a tab, on its Changes view.
-- Right-click a row to browse its commits, open it in Finder, copy its path,
-  or remove it, with or without its branch. Gibbon asks first, and tells you
-  how many changed files you lose.
+- Right-click a row to browse its commits, review its changes, open it in
+  Finder, copy its path, or remove it, with or without its branch. Gibbon
+  asks first, and tells you how many changed files you lose.
+
+### Activity
+
+**Activity** (<kbd>⌘</kbd><kbd>4</kbd>) lists the moves of all branches in the
+last 30 days, newest first, from Git's reflogs: commits, amends, rebases,
+resets, merges, pulls, pushes, and the branch switches of each worktree.
+
+- Each move shows the commits that it added and the commits that it
+  dropped. An amend, a reset, a rebase or a forced push can drop commits.
+- **Restore** on the last move of a branch undoes that move. Right-click any
+  move to restore its branch to before or after it. Gibbon first tells you
+  how many commits come back and how many leave the branch.
+- Gibbon moves a branch only if nothing moved it since the timeline loaded.
+  A branch that a worktree has checked out moves with `git reset --keep`
+  there: uncommitted changes stay, and Git stops if they conflict.
+- A restore is a move too, so you can undo it the same way.
+- The moves since your last look have a dot, and the sidebar counts them.
 
 ### Branches, stashes and conflicts
 
@@ -135,7 +152,8 @@ Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
 - Text sizes and the default diff view.
 
 Gibbon remembers its window and its tabs, and reopens each repository where
-you left it: the same view, branch, commit and file.
+you left it: the same view, branch, commit and file, and the review with its
+Viewed marks.
 
 ## Getting started
 
@@ -176,7 +194,7 @@ keychain has one, and ad hoc otherwise.
 | Open repository (in a new tab) | <kbd>⌘</kbd><kbd>O</kbd> |
 | Close tab | <kbd>⌘</kbd><kbd>W</kbd> |
 | Previous / next tab | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>[</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>]</kbd>, or <kbd>⌃</kbd><kbd>⇧</kbd><kbd>⇥</kbd> / <kbd>⌃</kbd><kbd>⇥</kbd> |
-| Changes / History / All branches | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> |
+| Changes / History / All branches / Activity | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> / <kbd>⌘</kbd><kbd>4</kbd> |
 | Refresh | <kbd>⌘</kbd><kbd>R</kbd> |
 | Commit | <kbd>⌘</kbd><kbd>↵</kbd> |
 | New branch | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> |
@@ -201,6 +219,8 @@ keychain has one, and ad hoc otherwise.
   ignored files in deeper folders can cause extra (harmless) refreshes.
 - Interactive rebase flattens merge commits and has no *edit* or *exec* step.
 - Pull requests: open ones only, no reviews or comments.
+- Activity reads the reflog files. A repository in the reftable format shows
+  no moves. Git deletes the reflog of a deleted branch, so its moves go too.
 - No in-app updates and no notarized builds yet.
 
 ## Development
@@ -225,13 +245,13 @@ Environment variables for automated UI checks:
 | --- | --- |
 | `GIBBON_BACKGROUND=1` | Pop-up window that stays on top but never takes focus (GPUI stops painting hidden windows) |
 | `GIBBON_BROWSE=<branch or ref>` | Start in browse mode |
-| `GIBBON_VIEW=changes\|all` | Start in that view |
+| `GIBBON_VIEW=changes\|all\|activity` | Start in that view |
 | `GIBBON_FILE=<path>` | Select that changed file |
 | `GIBBON_DIFF=split` | Split diffs |
 | `GIBBON_REBASE=<sha>` | Open the rebase planner from that commit |
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
 | `GIBBON_REVIEW=<branch or ref>` | Review that branch against the base branch |
-| `GIBBON_DIALOG=new-branch\|stash\|palette\|settings` | Open that dialog |
+| `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore` | Open that dialog (restore: for the newest move that dropped commits) |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 

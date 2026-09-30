@@ -19,7 +19,7 @@ pub struct Place {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RepoState {
-    /// "changes", "history", "review" or "stash:<n>".
+    /// "changes", "history", "review", "activity" or "stash:<n>".
     pub view: String,
     /// None for the checked-out branch, "all", or a full ref name.
     pub target: Option<String>,
@@ -32,6 +32,8 @@ pub struct RepoState {
     /// The files marked as viewed, by the ref under review. Each is a path
     /// and a hash of its diff, so a file that changes again is not viewed.
     pub viewed: HashMap<String, Vec<String>>,
+    /// Moves of the branches after this time are new.
+    pub activity_seen: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

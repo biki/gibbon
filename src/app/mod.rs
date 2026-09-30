@@ -29,7 +29,7 @@ use files::FileRow;
 use hover::hover_fill;
 use pane::{Memo, Part, keep};
 use crate::{
-    CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowAllBranches,
+    CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches,
     ShowChanges, ShowHistory,
 };
 
@@ -104,6 +104,7 @@ impl DiskChange {
 /// times stay right.
 const WORKTREE_TICK: std::time::Duration = std::time::Duration::from_secs(30);
 
+mod activity;
 mod branches;
 mod changes;
 mod palette;
@@ -132,6 +133,8 @@ pub enum View {
     Rebase,
     /// A branch's changes since it left its base (see `review`).
     Review,
+    /// The moves of all branches (see `activity`).
+    Activity,
 }
 
 pub struct GitApp {
@@ -165,6 +168,16 @@ pub struct GitApp {
     viewed: HashMap<String, HashSet<String>>,
     /// A branch to review once the refs load (UI checks).
     check_review: Option<String>,
+    /// The moves of the branches, newest first (see `activity`).
+    moves: Rc<Vec<git::RefMove>>,
+    /// The commits that moves added and dropped, by (old, new): git counts
+    /// each move once.
+    move_counts: HashMap<(String, String), Option<(u32, u32)>>,
+    moves_epoch: u64,
+    /// Moves after this time are new. None until the moves first load.
+    activity_seen: Option<i64>,
+    /// While the timeline is shown, moves after this time have a dot.
+    activity_mark: i64,
     /// A cherry-pick, rebase or merge stopped on conflicts.
     paused: Option<git::Paused>,
     view: View,
@@ -265,6 +278,11 @@ impl GitApp {
             review_epoch: 0,
             viewed: HashMap::new(),
             check_review: None,
+            moves: Rc::new(vec![]),
+            move_counts: HashMap::new(),
+            moves_epoch: 0,
+            activity_seen: None,
+            activity_mark: 0,
             paused: None,
             view: View::History,
             target: LogTarget::Head,
@@ -425,6 +443,7 @@ impl GitApp {
                 } else if this.view == View::Review {
                     this.load_review(cx);
                 }
+                this.load_activity(cx);
                 if let View::Stash(i) = this.view {
                     if this.stashes.iter().any(|s| s.index == i) {
                         this.stash_file = 0;
@@ -520,6 +539,8 @@ impl GitApp {
         }
         if change.others {
             self.load_worktree_info(false, cx);
+            // Switches in other worktrees.
+            self.load_activity(cx);
         }
         // A review with uncommitted changes shows files on disk.
         if self.view == View::Review && self.review.as_ref().is_some_and(|r| r.worktree.is_some()) {
@@ -1080,6 +1101,7 @@ impl GitApp {
             View::Changes => "changes".to_string(),
             View::Stash(n) => format!("stash:{n}"),
             View::Review if self.review.is_some() => "review".to_string(),
+            View::Activity => "activity".to_string(),
             View::History | View::Rebase | View::Review => "history".to_string(),
         };
         let target = match &self.target {
@@ -1105,6 +1127,7 @@ impl GitApp {
                 worktree: r.worktree.clone(),
             }),
             viewed: self.viewed_to_save(),
+            activity_seen: self.activity_seen,
         })
     }
 
@@ -1129,6 +1152,7 @@ impl GitApp {
         self.view = match s.view.as_str() {
             "changes" => View::Changes,
             "review" if self.review.is_some() => View::Review,
+            "activity" => View::Activity,
             v => match v.strip_prefix("stash:").and_then(|n| n.parse().ok()) {
                 Some(n) => View::Stash(n),
                 None => View::History,
@@ -1142,13 +1166,15 @@ impl GitApp {
         self.pending_commit = s.commit;
         self.pending_file = Some(s.file);
         self.change_sel = s.change;
+        self.activity_seen = s.activity_seen;
+        self.activity_mark = s.activity_seen.unwrap_or(0);
     }
 
     /// Start state for automated UI checks:
-    /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all`,
+    /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all|activity`,
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
     /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`, `GIBBON_REVIEW=<branch>`,
-    /// `GIBBON_DIALOG=new-branch|stash|palette|settings`, `GIBBON_INSPECTOR=1`.
+    /// `GIBBON_DIALOG=new-branch|stash|palette|settings|restore`, `GIBBON_INSPECTOR=1`.
     pub fn apply_check_env(&mut self, cx: &mut Context<Self>) {
         let var = |k: &str| std::env::var(k).ok();
         if let Some(b) = var("GIBBON_BROWSE") {
@@ -1157,6 +1183,7 @@ impl GitApp {
         match var("GIBBON_VIEW").as_deref() {
             Some("changes") => self.view = View::Changes,
             Some("all") => self.show_target(LogTarget::All, cx),
+            Some("activity") => self.show_activity(cx),
             _ => {}
         }
         if let Some(f) = var("GIBBON_FILE") {
@@ -1535,12 +1562,15 @@ impl Render for GitApp {
         if std::mem::take(&mut self.check_inspector) {
             window.defer(cx, |window, cx| window.toggle_inspector(cx));
         }
-        if let Some(which) = self.check_dialog.take() {
+        // The restore dialog waits for the moves.
+        let waits = self.check_dialog.as_deref() == Some("restore") && self.moves.is_empty();
+        if let Some(which) = self.check_dialog.take_if(|_| !waits) {
             match which.as_str() {
                 "new-branch" => self.new_branch_dialog(None, window, cx),
                 "stash" => self.stash_dialog(window, cx),
                 "palette" => self.open_palette(window, cx),
                 "settings" => settings_ui::open_settings(window, cx),
+                "restore" => self.check_restore_dialog(window, cx),
                 _ => {}
             }
         }
@@ -1559,6 +1589,7 @@ impl Render for GitApp {
                     View::Stash(i) => self.render_stash(i, cx),
                     View::Rebase => self.render_rebase(cx),
                     View::Review => self.render_review(cx),
+                    View::Activity => self.render_activity(cx),
                 }))
                 .into_any_element(),
         };
@@ -1577,6 +1608,7 @@ impl Render for GitApp {
             .on_action(cx.listener(|this, _: &ShowAllBranches, _, cx| {
                 this.show_target(LogTarget::All, cx)
             }))
+            .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show_activity(cx)))
             .on_action(cx.listener(|this, _: &Fetch, _, cx| this.fetch(cx)))
             .on_action(cx.listener(|this, _: &Pull, _, cx| this.pull(cx)))
             .on_action(cx.listener(|this, _: &Push, _, cx| this.push(cx)))

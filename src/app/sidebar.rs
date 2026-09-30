@@ -12,6 +12,7 @@ enum Row {
     Changes,
     History,
     All,
+    Activity,
     Header {
         key: &'static str,
         label: &'static str,
@@ -46,7 +47,7 @@ pub(super) fn side_row(ix: usize, active: bool, cx: &App) -> Stateful<Div> {
 impl GitApp {
     fn sidebar_rows(&self, cx: &App) -> Vec<Row> {
         let needle = self.filter.read(cx).value().to_lowercase();
-        let mut rows = vec![Row::Changes, Row::History, Row::All];
+        let mut rows = vec![Row::Changes, Row::History, Row::All, Row::Activity];
         if self.has_worktrees() {
             let matches: Vec<usize> = (0..self.worktrees.len())
                 .filter(|&i| {
@@ -224,6 +225,36 @@ impl GitApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.show_target(LogTarget::All, cx)),
+                    )
+                    .into_any_element()
+            }
+            Row::Activity => {
+                let active = self.view == View::Activity;
+                let new = if active { 0 } else { self.new_moves() };
+                base(active)
+                    .child(Icon::new(IconName::Activity).size(px(15.)).text_color(muted))
+                    .child(label("Activity".into(), active))
+                    .when(new > 0, |d| {
+                        d.child(
+                            div()
+                                .px_1p5()
+                                .rounded(px(9.))
+                                .bg(t.colors.primary.opacity(0.16))
+                                .text_size(px(11.))
+                                .text_color(t.colors.primary)
+                                .child(if new > 99 { "99+".to_string() } else { new.to_string() }),
+                        )
+                    })
+                    .tooltip(move |window, cx| {
+                        let tip = match new {
+                            0 => "Moves of all branches  ⌘4".to_string(),
+                            n => format!("{n} new move{} since your last look  ⌘4", history::plural(n)),
+                        };
+                        gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.show_activity(cx)),
                     )
                     .into_any_element()
             }

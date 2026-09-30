@@ -1640,6 +1640,271 @@ pub fn common_dir(repo: &Repo) -> Result<PathBuf> {
     Ok(PathBuf::from(out.trim()))
 }
 
+// ---------------------------------------------------------------------------
+// Activity: the moves of the branches, from their reflogs
+
+/// How far back the activity goes, and how many moves it keeps at most.
+const ACTIVITY_DAYS: i64 = 30;
+const ACTIVITY_MAX: usize = 500;
+/// Remote branches whose reflogs the activity reads at most, the most
+/// recently changed first: a repository can have thousands.
+const ACTIVITY_REMOTES: usize = 200;
+/// The reflog action of a restore: "gibbon restore: moving to <sha>".
+const RESTORE_ACTION: &str = "gibbon restore";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveKind {
+    Commit,
+    Amend,
+    Rebase,
+    Reset,
+    Merge,
+    Pull,
+    CherryPick,
+    Revert,
+    /// The branch was made.
+    Created,
+    /// A push moved the remote-tracking branch.
+    Push,
+    /// A worktree switched to another branch or commit.
+    Switch,
+    /// Gibbon restored the branch.
+    Restore,
+    Other,
+}
+
+impl MoveKind {
+    /// The kind of a reflog message: "commit (amend): …" is an amend.
+    fn of(message: &str) -> MoveKind {
+        let action = message.split_once(": ").map_or(message, |(a, _)| a);
+        match action {
+            "commit" | "commit (initial)" => MoveKind::Commit,
+            "commit (amend)" => MoveKind::Amend,
+            "commit (merge)" => MoveKind::Merge,
+            "reset" => MoveKind::Reset,
+            "cherry-pick" => MoveKind::CherryPick,
+            "revert" => MoveKind::Revert,
+            "update by push" => MoveKind::Push,
+            "checkout" => MoveKind::Switch,
+            RESTORE_ACTION => MoveKind::Restore,
+            a if a.starts_with("rebase") || a.starts_with("pull --rebase") => MoveKind::Rebase,
+            a if a.starts_with("merge") => MoveKind::Merge,
+            a if a.starts_with("pull") => MoveKind::Pull,
+            "branch" if message.contains("Created from") => MoveKind::Created,
+            "branch" if message.contains("Reset to") => MoveKind::Reset,
+            _ => MoveKind::Other,
+        }
+    }
+
+    /// The word the timeline shows.
+    pub fn verb(self) -> &'static str {
+        match self {
+            MoveKind::Commit => "Commit",
+            MoveKind::Amend => "Amend",
+            MoveKind::Rebase => "Rebase",
+            MoveKind::Reset => "Reset",
+            MoveKind::Merge => "Merge",
+            MoveKind::Pull => "Pull",
+            MoveKind::CherryPick => "Cherry-pick",
+            MoveKind::Revert => "Revert",
+            MoveKind::Created => "Create",
+            MoveKind::Push => "Push",
+            MoveKind::Switch => "Switch",
+            MoveKind::Restore => "Restore",
+            MoveKind::Other => "Move",
+        }
+    }
+}
+
+/// One move of a branch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefMove {
+    /// `refs/heads/x`, `refs/remotes/origin/x`, or `HEAD` of a worktree.
+    pub refname: String,
+    /// For `HEAD`: the worktree's folder name. None for the main worktree.
+    pub worktree: Option<String>,
+    /// None when the move made the ref.
+    pub old: Option<String>,
+    pub new: String,
+    pub time: i64,
+    /// What git wrote, without the action: the subject of a commit, or
+    /// "moving to HEAD~1" for a reset.
+    pub detail: String,
+    pub kind: MoveKind,
+    /// The commits that the move added to the ref and dropped from it,
+    /// when they are known (see `move_counts`).
+    pub counts: Option<(u32, u32)>,
+}
+
+impl RefMove {
+    /// The counts are clear from the kind, or `move_counts` must ask git.
+    pub fn needs_counts(&self) -> bool {
+        self.counts.is_none() && self.old.is_some() && self.kind != MoveKind::Switch
+    }
+
+    /// The move dropped commits: an amend, a reset, a rebase or a forced push.
+    pub fn rewrites(&self) -> bool {
+        self.counts.is_some_and(|(_, dropped)| dropped > 0)
+    }
+}
+
+/// One reflog line: `<old> <new> <name> <<email>> <time> <tz>\t<message>`.
+fn parse_reflog_line(line: &str) -> Option<(Option<String>, String, i64, String)> {
+    let (head, message) = line.split_once('\t').unwrap_or((line, ""));
+    let mut parts = head.splitn(3, ' ');
+    let old = parts.next()?;
+    let new = parts.next()?.to_string();
+    let who = parts.next()?;
+    let mut tail = who.rsplitn(3, ' ');
+    let _tz = tail.next()?;
+    let time = tail.next()?.parse().ok()?;
+    let old = (!old.bytes().all(|b| b == b'0')).then(|| old.to_string());
+    Some((old, new, time, message.trim_end().to_string()))
+}
+
+/// The moves in the reflog file `path` of `refname`, oldest first. `keep`
+/// says which kinds the timeline shows for this ref.
+fn read_reflog(
+    path: &Path,
+    refname: &str,
+    worktree: Option<&str>,
+    since: i64,
+    keep: &dyn Fn(MoveKind) -> bool,
+) -> Vec<RefMove> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return vec![];
+    };
+    text.lines()
+        .filter_map(parse_reflog_line)
+        .filter(|(_, _, time, _)| *time >= since)
+        .filter_map(|(old, new, time, message)| {
+            let kind = MoveKind::of(&message);
+            if !keep(kind) {
+                return None;
+            }
+            let detail = message
+                .split_once(": ")
+                .map_or(String::new(), |(_, d)| d.to_string());
+            let counts = match kind {
+                MoveKind::Commit | MoveKind::CherryPick | MoveKind::Revert => Some((1, 0)),
+                MoveKind::Amend => Some((1, 1)),
+                MoveKind::Created => Some((0, 0)),
+                _ => None,
+            };
+            Some(RefMove {
+                refname: refname.to_string(),
+                worktree: worktree.map(str::to_string),
+                old,
+                new,
+                time,
+                detail,
+                kind,
+                counts,
+            })
+        })
+        .collect()
+}
+
+/// The files under `dir`, as (path relative to `dir`, file).
+fn files_under(dir: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = vec![];
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Ok(rel) = p.strip_prefix(dir) {
+                out.push((rel.to_string_lossy().into_owned(), p));
+            }
+        }
+    }
+    out
+}
+
+/// The moves of the last 30 days, newest first: every move of the local
+/// branches, the pushes of the remote branches, and the switches of each
+/// worktree. The reflogs are read from their files, so a repository in the
+/// reftable format shows none.
+pub fn ref_moves(repo: &Repo) -> Result<Vec<RefMove>> {
+    let common = common_dir(repo)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let since = now - ACTIVITY_DAYS * 86_400;
+    let logs = common.join("logs");
+    let mut moves = vec![];
+    for (rel, path) in files_under(&logs.join("refs/heads")) {
+        let refname = format!("refs/heads/{rel}");
+        moves.extend(read_reflog(&path, &refname, None, since, &|k| k != MoveKind::Switch));
+    }
+    let mut remotes = files_under(&logs.join("refs/remotes"));
+    let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    remotes.sort_by_cached_key(|(_, p)| std::cmp::Reverse(modified(p)));
+    for (rel, path) in remotes.into_iter().take(ACTIVITY_REMOTES) {
+        let refname = format!("refs/remotes/{rel}");
+        moves.extend(read_reflog(&path, &refname, None, since, &|k| k == MoveKind::Push));
+    }
+    let switches = |k| k == MoveKind::Switch;
+    moves.extend(read_reflog(&logs.join("HEAD"), "HEAD", None, since, &switches));
+    if let Ok(entries) = std::fs::read_dir(common.join("worktrees")) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let head = e.path().join("logs/HEAD");
+            moves.extend(read_reflog(&head, "HEAD", Some(&name), since, &switches));
+        }
+    }
+    // Newest first. Moves in the same second keep their order in the file.
+    let mut moves: Vec<(usize, RefMove)> = moves.into_iter().enumerate().collect();
+    moves.sort_by(|(ia, a), (ib, b)| b.time.cmp(&a.time).then(ib.cmp(ia)));
+    Ok(moves.into_iter().map(|(_, m)| m).take(ACTIVITY_MAX).collect())
+}
+
+/// The commits that moving a ref from `old` to `new` added and dropped.
+/// None when git no longer has one of them.
+pub fn move_counts(repo: &Repo, old: &str, new: &str) -> Option<(u32, u32)> {
+    let range = format!("{old}...{new}");
+    let out = repo
+        .git(&["rev-list", "--left-right", "--count", range.as_str()])
+        .ok()?;
+    let mut it = out.split_whitespace();
+    let dropped = it.next()?.parse().ok()?;
+    let added = it.next()?.parse().ok()?;
+    Some((added, dropped))
+}
+
+/// Move the local branch `refname` to `to`, only if it still points at
+/// `expect`. A branch that `worktree` has checked out moves with
+/// `git reset --keep` there: its files follow, uncommitted changes stay,
+/// and git stops when they would conflict. The restore is a move in the
+/// reflog too, so it can be undone the same way.
+pub fn restore_branch(
+    repo: &Repo,
+    refname: &str,
+    to: &str,
+    expect: &str,
+    worktree: Option<&Path>,
+) -> Result<String> {
+    let at = repo.git(&["rev-parse", "-q", "--verify", refname])?;
+    if at.trim() != expect {
+        bail!("{refname} moved since the timeline loaded. Look again, then restore.");
+    }
+    match worktree {
+        Some(dir) => run_env(
+            dir,
+            &["reset", "--keep", "-q", to],
+            &[("GIT_REFLOG_ACTION", RESTORE_ACTION)],
+        ),
+        None => {
+            let msg = format!("{RESTORE_ACTION}: moving to {to}");
+            repo.git(&["update-ref", "-m", msg.as_str(), refname, to, expect])
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2067,6 +2332,79 @@ mod tests {
 
         let err = branch_diff(r, "refs/heads/main", "refs/heads/nope", None).unwrap_err();
         assert!(err.to_string().contains("no commit in common"), "{err}");
+    }
+
+    #[test]
+    fn activity_lists_moves_and_restores_them() {
+        let t = temp_repo("activity");
+        let r = &t.0;
+        commit_file(r, "a.txt", "base", "base");
+        r.git(&["switch", "-q", "-c", "agent"]).unwrap();
+        commit_file(r, "b.txt", "one", "one");
+        let two = commit_file(r, "b.txt", "two", "two");
+        r.git(&["commit", "-q", "--amend", "-m", "two, amended"]).unwrap();
+        let amended = r.git(&["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        r.git(&["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+        r.git(&["switch", "-q", "main"]).unwrap();
+
+        let moves = ref_moves(r).unwrap();
+        let agent: Vec<(MoveKind, &str)> = moves
+            .iter()
+            .filter(|m| m.refname == "refs/heads/agent")
+            .map(|m| (m.kind, m.detail.as_str()))
+            .collect();
+        assert_eq!(
+            agent,
+            [
+                (MoveKind::Reset, "moving to HEAD~1"),
+                (MoveKind::Amend, "two, amended"),
+                (MoveKind::Commit, "two"),
+                (MoveKind::Commit, "one"),
+                (MoveKind::Created, "Created from HEAD"),
+            ]
+        );
+        // Only the switches of HEAD: its commits are the branches' moves.
+        let head: Vec<MoveKind> = moves.iter().filter(|m| m.refname == "HEAD").map(|m| m.kind).collect();
+        assert_eq!(head, [MoveKind::Switch, MoveKind::Switch]);
+        let reset = &moves[moves.iter().position(|m| m.kind == MoveKind::Reset).unwrap()];
+        assert!(reset.needs_counts());
+        let old = reset.old.clone().unwrap();
+        assert_eq!(old, amended);
+        assert_eq!(move_counts(r, &old, &reset.new), Some((0, 1)));
+        assert_eq!(moves.iter().find(|m| m.kind == MoveKind::Amend).unwrap().counts, Some((1, 1)));
+
+        // Restore the branch to before the reset. It is not checked out.
+        let now = reset.new.clone();
+        assert!(restore_branch(r, "refs/heads/agent", &old, &two, None).is_err(), "moved since");
+        restore_branch(r, "refs/heads/agent", &old, &now, None).unwrap();
+        assert_eq!(r.git(&["rev-parse", "agent"]).unwrap().trim(), amended);
+        let latest = ref_moves(r).unwrap().into_iter().find(|m| m.refname == "refs/heads/agent").unwrap();
+        assert_eq!(latest.kind, MoveKind::Restore);
+
+        // Checked out with an uncommitted change: the change stays.
+        r.git(&["switch", "-q", "agent"]).unwrap();
+        std::fs::write(r.root.join("a.txt"), "local\n").unwrap();
+        restore_branch(r, "refs/heads/agent", &now, &amended, Some(&r.root)).unwrap();
+        assert_eq!(r.git(&["rev-parse", "HEAD"]).unwrap().trim(), now);
+        assert_eq!(std::fs::read_to_string(r.root.join("a.txt")).unwrap(), "local\n");
+        let latest = ref_moves(r).unwrap().into_iter().find(|m| m.refname == "refs/heads/agent").unwrap();
+        assert_eq!((latest.kind, latest.new.as_str()), (MoveKind::Restore, now.as_str()));
+    }
+
+    #[test]
+    fn reflog_lines_and_kinds() {
+        let line = "0000000000000000000000000000000000000000 abc Ben Kaspar <b@x.y> 1790792775 +0200\tbranch: Created from HEAD";
+        let (old, new, time, msg) = parse_reflog_line(line).unwrap();
+        assert_eq!((old, new.as_str(), time), (None, "abc", 1790792775));
+        assert_eq!(msg, "branch: Created from HEAD");
+        assert_eq!(MoveKind::of("rebase (finish): refs/heads/x onto abc"), MoveKind::Rebase);
+        assert_eq!(MoveKind::of("pull --rebase (finish): refs/heads/x onto abc"), MoveKind::Rebase);
+        assert_eq!(MoveKind::of("pull: Fast-forward"), MoveKind::Pull);
+        assert_eq!(MoveKind::of("merge feature: Fast-forward"), MoveKind::Merge);
+        assert_eq!(MoveKind::of("branch: Reset to main"), MoveKind::Reset);
+        assert_eq!(MoveKind::of("update by push"), MoveKind::Push);
+        assert_eq!(MoveKind::of("commit (initial): first"), MoveKind::Commit);
+        assert_eq!(MoveKind::of("gibbon restore: moving to abc"), MoveKind::Restore);
     }
 
     #[test]

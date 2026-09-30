@@ -65,7 +65,7 @@ fn viewed_key(file: &FileDiff) -> String {
 
 impl GitApp {
     /// The worktree that has `target` checked out, if any.
-    fn checkout_of(&self, target: &str) -> Option<&git::Worktree> {
+    pub(super) fn checkout_of(&self, target: &str) -> Option<&git::Worktree> {
         self.worktrees.iter().find(|w| match &w.branch {
             Some(b) => b == target,
             None => w.head.as_deref() == Some(target),
