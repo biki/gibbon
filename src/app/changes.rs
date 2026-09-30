@@ -1,0 +1,386 @@
+//! Changes: staged and unstaged files, the commit box, and the file's diff.
+
+use std::ops::Range;
+
+use gpui_kit::component::input::Textarea;
+use gpui_kit::component::menu::ContextMenuExt as _;
+
+use super::*;
+
+enum Row {
+    Header { staged: bool, count: usize },
+    File { entry: usize, staged: bool },
+}
+
+impl GitApp {
+    fn change_rows(&self) -> Vec<Row> {
+        let staged: Vec<usize> = (0..self.status.len())
+            .filter(|&i| self.status[i].staged.is_some())
+            .collect();
+        let unstaged: Vec<usize> = (0..self.status.len())
+            .filter(|&i| self.status[i].unstaged.is_some())
+            .collect();
+        let mut rows = Vec::new();
+        if !staged.is_empty() {
+            rows.push(Row::Header {
+                staged: true,
+                count: staged.len(),
+            });
+            rows.extend(staged.into_iter().map(|entry| Row::File {
+                entry,
+                staged: true,
+            }));
+        }
+        if !unstaged.is_empty() {
+            rows.push(Row::Header {
+                staged: false,
+                count: unstaged.len(),
+            });
+            rows.extend(unstaged.into_iter().map(|entry| Row::File {
+                entry,
+                staged: false,
+            }));
+        }
+        rows
+    }
+
+    pub(super) fn render_changes(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (muted, border) = (cx.theme().colors.muted_foreground, cx.theme().colors.border);
+        let rows = Rc::new(self.change_rows());
+        let n = rows.len();
+        let staged = self.status.iter().filter(|e| e.staged.is_some()).count();
+        let list = if n == 0 {
+            v_flex()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .text_color(muted)
+                .child(Icon::new(IconName::CircleCheck).size(px(28.)))
+                .child("No local changes.")
+                .into_any_element()
+        } else {
+            uniform_list(
+                "changes",
+                n,
+                cx.processor(move |this, range: Range<usize>, _window, cx| {
+                    range
+                        .map(|i| this.render_change_row(&rows[i], i, cx))
+                        .collect::<Vec<_>>()
+                }),
+            )
+            .flex_1()
+            .px_1p5()
+            .py_1()
+            .into_any_element()
+        };
+        let commit_box = v_flex()
+            .flex_none()
+            .p_3()
+            .gap_2()
+            .border_t_1()
+            .border_color(border)
+            .child(Textarea::new(&self.message).h(px(96.)))
+            .child(
+                Button::new("commit")
+                    .primary()
+                    .w_full()
+                    .disabled(staged == 0 || self.busy.is_some())
+                    .child(
+                        h_flex()
+                            .gap_1p5()
+                            .child(Icon::new(IconName::GitCommitHorizontal).size(px(15.)))
+                            .child(format!("Commit to {}", self.head_name()))
+                            .child(
+                                div()
+                                    .ml_1()
+                                    .text_size(px(11.))
+                                    .opacity(0.7)
+                                    .child("⌘↵"),
+                            ),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx))),
+            );
+        let ctx = match &self.change_sel {
+            Some((_, true)) => DiffCtx::Staged,
+            _ => DiffCtx::Unstaged,
+        };
+        let diff = self.render_diff(
+            self.change_diff.clone(),
+            self.change_styles.clone(),
+            ctx,
+            "change-diff",
+            cx,
+        );
+        h_resizable("changes-split")
+            .child(
+                resizable_panel()
+                    .size(px(380.))
+                    .size_range(px(260.)..px(700.))
+                    .child(
+                        v_flex()
+                            .size_full()
+                            .border_r_1()
+                            .border_color(border)
+                            .when_some(self.paused, |d, p| d.child(self.render_paused_banner(p, cx)))
+                            .child(list)
+                            .child(commit_box),
+                    ),
+            )
+            .child(resizable_panel().child(diff))
+    }
+
+    fn render_paused_banner(&self, p: git::Paused, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = cx.theme();
+        let conflicts = self
+            .status
+            .iter()
+            .filter(|e| e.unstaged == Some(git::Change::Conflicted))
+            .count();
+        v_flex()
+            .flex_none()
+            .p_3()
+            .gap_2()
+            .border_b_1()
+            .border_color(t.colors.border)
+            .bg(t.colors.yellow.opacity(0.10))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(Icon::new(IconName::GitMergeConflict).size(px(15.)).text_color(t.colors.yellow))
+                    .child(format!("{} paused", p.name())),
+            )
+            .child(div().text_size(px(12.)).text_color(t.colors.muted_foreground).child(
+                if conflicts > 0 {
+                    format!(
+                        "{conflicts} file{} with conflicts. Fix them in your editor, \
+                         stage them, then continue.",
+                        history::plural(conflicts)
+                    )
+                } else {
+                    format!(
+                        "All conflicts are staged. Continue to finish the {}.",
+                        p.name().to_lowercase()
+                    )
+                },
+            ))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("pick-continue")
+                            .primary()
+                            .small()
+                            .label("Continue")
+                            .disabled(conflicts > 0 || self.busy.is_some())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.run_op(
+                                    "Continuing…",
+                                    Some(format!("{} finished", p.name())),
+                                    move |repo| git::continue_paused(repo, p),
+                                    cx,
+                                )
+                            })),
+                    )
+                    .when(p.can_skip(), |d| {
+                        d.child(
+                            Button::new("paused-skip")
+                                .small()
+                                .label("Skip")
+                                .tooltip("Leave this commit out and go on")
+                                .disabled(self.busy.is_some())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.run_op(
+                                        "Skipping…",
+                                        None,
+                                        move |repo| git::skip_paused(repo, p),
+                                        cx,
+                                    )
+                                })),
+                        )
+                    })
+                    .child(
+                        Button::new("pick-abort")
+                            .small()
+                            .label("Abort")
+                            .disabled(self.busy.is_some())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.run_op(
+                                    "Aborting…",
+                                    Some(format!("{} aborted", p.name())),
+                                    move |repo| git::abort_paused(repo, p),
+                                    cx,
+                                )
+                            })),
+                    ),
+            )
+    }
+
+    fn render_change_row(&self, row: &Row, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let t = cx.theme();
+        let muted = t.colors.muted_foreground;
+        match *row {
+            Row::Header { staged, count } => h_flex()
+                .w_full()
+                .h(px(30.))
+                .px_2()
+                .gap_2()
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(muted)
+                .child(div().flex_1().child(if staged {
+                    format!("STAGED · {count}")
+                } else {
+                    format!("CHANGES · {count}")
+                }))
+                .when(!staged, |d| {
+                    d.child(
+                        Button::new(("stash", ix))
+                            .ghost()
+                            .xsmall()
+                            .label("Stash")
+                            .tooltip("Stash all changes  ⌥⌘S")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.stash_dialog(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new(("discard-all", ix))
+                            .ghost()
+                            .xsmall()
+                            .label("Discard all")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let entries: Vec<StatusEntry> = this
+                                    .status
+                                    .iter()
+                                    .filter(|e| e.unstaged.is_some())
+                                    .cloned()
+                                    .collect();
+                                this.confirm_discard_files(entries, window, cx)
+                            })),
+                    )
+                })
+                .child(
+                    Button::new(("stage-all", ix))
+                        .ghost()
+                        .xsmall()
+                        .label(if staged { "Unstage all" } else { "Stage all" })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let label = if staged { "Unstaging…" } else { "Staging…" };
+                            this.run_op(
+                                label,
+                                None,
+                                move |repo| {
+                                    if staged {
+                                        git::unstage_all(repo)
+                                    } else {
+                                        git::stage_all(repo)
+                                    }
+                                    .map(|_| String::new())
+                                },
+                                cx,
+                            )
+                        })),
+                )
+                .into_any_element(),
+            Row::File { entry, staged } => {
+                let e = &self.status[entry];
+                let change = if staged { e.staged } else { e.unstaged }
+                    .unwrap_or(git::Change::Modified);
+                let selected = self.change_sel.as_ref() == Some(&(e.path.clone(), staged));
+                let (path, path2) = (e.path.clone(), e.path.clone());
+                let entry_menu = e.clone();
+                let root = self.repo.as_ref().map(|r| r.root.clone());
+                let this = cx.entity();
+                diff::path_row(&e.path, change, selected, ("change", ix), cx)
+                    .child(
+                        Button::new(("stage", ix))
+                            .ghost()
+                            .xsmall()
+                            .icon(if staged { IconName::Minus } else { IconName::Plus })
+                            .tooltip(if staged { "Unstage" } else { "Stage" })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let paths = vec![path.clone()];
+                                this.run_op(
+                                    if staged { "Unstaging…" } else { "Staging…" },
+                                    None,
+                                    move |repo| {
+                                        if staged {
+                                            git::unstage(repo, &paths)
+                                        } else {
+                                            git::stage(repo, &paths)
+                                        }
+                                        .map(|_| String::new())
+                                    },
+                                    cx,
+                                )
+                            })),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.change_sel = Some((path2.clone(), staged));
+                        this.load_change_diff(cx);
+                        cx.notify();
+                    }))
+                    .context_menu(move |menu, _, _| {
+                        let e = entry_menu.clone();
+                        let (a, b, c) = (this.clone(), this.clone(), e.clone());
+                        let paths = vec![e.path.clone()];
+                        let mut menu = menu.item(
+                            PopupMenuItem::new(if staged { "Unstage" } else { "Stage" }).on_click(
+                                move |_, _, cx| {
+                                    let paths = paths.clone();
+                                    a.update(cx, |app, cx| {
+                                        app.run_op(
+                                            "Staging…",
+                                            None,
+                                            move |repo| {
+                                                if staged {
+                                                    git::unstage(repo, &paths)
+                                                } else {
+                                                    git::stage(repo, &paths)
+                                                }
+                                                .map(|_| String::new())
+                                            },
+                                            cx,
+                                        )
+                                    });
+                                },
+                            ),
+                        );
+                        if !staged {
+                            menu = menu.item(PopupMenuItem::new("Discard Changes…").on_click(
+                                move |_, window, cx| {
+                                    let e = c.clone();
+                                    b.update(cx, |app, cx| {
+                                        app.confirm_discard_files(vec![e], window, cx)
+                                    });
+                                },
+                            ));
+                        }
+                        let copy = e.path.clone();
+                        let full = root.as_ref().map(|r| r.join(&e.path));
+                        menu.separator()
+                            .item(PopupMenuItem::new("Copy Path").on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                            }))
+                            .item(PopupMenuItem::new("Reveal in Finder").on_click(
+                                move |_, _, _| {
+                                    if let Some(p) = &full {
+                                        let _ = std::process::Command::new("open")
+                                            .arg("-R")
+                                            .arg(p)
+                                            .spawn();
+                                    }
+                                },
+                            ))
+                    })
+                    .into_any_element()
+            }
+        }
+    }
+}
