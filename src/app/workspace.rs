@@ -121,6 +121,13 @@ impl Workspace {
         self.activate(ix, window, cx);
     }
 
+    /// Forget the recent repositories, but not the ones open in a tab.
+    fn clear_recent(&mut self, cx: &mut Context<Self>) {
+        let open: Vec<PathBuf> = self.tabs.iter().map(|t| t.repo.root.clone()).collect();
+        self.recent = crate::recent::clear(&open);
+        cx.notify();
+    }
+
     fn prompt_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -381,7 +388,13 @@ impl Workspace {
                     }));
                 }
                 if !closed.is_empty() {
-                    menu = menu.separator();
+                    let this = this.clone();
+                    menu = menu
+                        .separator()
+                        .item(PopupMenuItem::new("Clear Recent").on_click(move |_, _, cx| {
+                            this.update(cx, |ws, cx| ws.clear_recent(cx));
+                        }))
+                        .separator();
                 }
                 menu.menu("Open Repository…", Box::new(OpenRepo))
             })
@@ -425,12 +438,25 @@ impl Workspace {
                         .mt_4()
                         .gap_0p5()
                         .child(
-                            div()
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(muted)
+                            h_flex()
                                 .mb_1()
-                                .child("RECENT"),
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_size(px(11.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(muted)
+                                        .child("RECENT"),
+                                )
+                                .child(
+                                    Button::new("recent-clear")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Clear")
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.clear_recent(cx)),
+                                        ),
+                                ),
                         )
                         .children(self.recent.iter().enumerate().map(|(i, p)| {
                             let (path, this) = (p.clone(), this.clone());

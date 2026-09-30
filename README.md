@@ -36,7 +36,8 @@ behind the Zed editor.
 
 - Each open repository has a tab in the title bar. Opening a repository adds
   a tab, or shows its tab if it is open already.
-- **+** lists the recent repositories that have no tab.
+- **+** lists the recent repositories that have no tab. **Clear Recent** there,
+  or **Clear** on the welcome screen, removes them from the list.
 - Close a tab with its **×**, a middle-click or <kbd>⌘</kbd><kbd>W</kbd>.
 
 ### History and graph

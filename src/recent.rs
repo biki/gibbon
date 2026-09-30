@@ -26,13 +26,24 @@ pub fn push(root: &Path) -> Vec<PathBuf> {
     list.retain(|p| p != root);
     list.insert(0, root.to_path_buf());
     list.truncate(MAX);
-    if let Some(f) = file() {
-        if let Some(dir) = f.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(s) = serde_json::to_string_pretty(&list) {
-            let _ = std::fs::write(f, s);
-        }
-    }
+    save(&list);
     list
+}
+
+/// Remove all repositories but `keep` from the list and save it.
+pub fn clear(keep: &[PathBuf]) -> Vec<PathBuf> {
+    let mut list = load();
+    list.retain(|p| keep.contains(p));
+    save(&list);
+    list
+}
+
+fn save(list: &[PathBuf]) {
+    let Some(f) = file() else { return };
+    if let Some(dir) = f.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(s) = serde_json::to_string_pretty(list) {
+        let _ = std::fs::write(f, s);
+    }
 }
