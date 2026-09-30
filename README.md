@@ -1,108 +1,160 @@
+<div align="center">
+
+<img src="assets/icon/gibbon.png" width="128" alt="Gibbon icon">
+
 # Gibbon
 
+**Swing between branches.**
+
 A native Git client for macOS, written in Rust on
-[GPUI](https://github.com/zed-industries/zed) through
-[gpui-kit](https://crates.io/crates/gpui-kit). The stack follows
-[Tusk](https://github.com/alpcanaydin/tusk).
+[GPUI](https://github.com/zed-industries/zed), the GPU-rendered UI framework
+behind the Zed editor.
 
-## Run
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)
+![Rust](https://img.shields.io/badge/rust-2024_edition-orange)
 
-```sh
-cargo run --release -- /path/to/repo   # from source
-scripts/bundle.sh                      # → target/release/bundle/Gibbon.app
-```
+</div>
 
-Without a path, the app opens the last repository. Drag `Gibbon.app` into
-`/Applications` to keep it.
+## Why Gibbon
+
+- **Native.** No Electron and no web view. The commit list and the diffs are
+  virtualized: Gibbon loads up to 20,000 commits and draws only the rows on
+  screen.
+- **Cherry-pick the right way around.** Stay on your branch, browse another
+  one, and pick the commits you need into yours.
+- **Real Git underneath.** Every operation runs the `git` CLI. Your hooks,
+  commit signing, credential helpers and SSH keys work as they do in the
+  terminal.
+- **Keyboard first.** The common actions have shortcuts and live in the
+  command palette (<kbd>⌘</kbd><kbd>K</kbd>).
+- **Free and open source.** MIT licensed, no account, no telemetry.
 
 ## Features
 
-**History**
-- A virtualized commit list with a commit graph, ref badges, authors and
-  dates. The app loads up to 20,000 commits.
-- **All branches** shows one graph for every branch, remote branch and tag.
-- Commit detail: message, author and committer, changed files, and the diff.
+### History and graph
 
-**Diffs**
-- Syntax colors for about 35 languages (tree-sitter), and the changed words
-  of a changed line in a stronger color.
-- Unified or split (side by side) view.
+- A commit graph with branch, remote and tag badges, authors and dates.
+- **All branches** draws one graph for every branch, remote branch and tag.
+- Commit details: message, author and committer, changed files and the diff.
 
-**Changes**
-- Stage and unstage per file, per hunk, or per line: click the line numbers
-  to select lines (⇧-click for a range), then **Stage lines**.
-- Discard a file, a hunk, some lines, or everything. The app asks first.
-- Commit box, and **Stash** for all changes.
-- The app watches the repository and refreshes by itself.
+### Diffs
 
-**Cherry-pick from the branch you are on**
-- Click a branch or a pull request in the sidebar to browse it. You stay on
-  your branch. The list dims the commits your branch has and marks earlier
-  picks with "picked".
-- Select commits (click, ⌘-click, ⇧-click) and click **Pick into …**. Merge
-  commits pick against their first parent.
+- Syntax colors for about 35 languages (tree-sitter).
+- Word-level highlights show exactly what changed inside a line.
+- Unified or split (side-by-side) view.
 
-**Interactive rebase**
-- Right-click a commit in History ▸ **Interactive Rebase from Here…**.
-- Set pick, reword, squash, fixup or drop per commit, and move commits up
-  and down. Uncommitted changes are stashed first and restored after.
+### Staging
 
-**When an operation stops on a conflict**
-- A cherry-pick, rebase, merge or revert that stops shows **Continue**,
-  **Skip** and **Abort** in the Changes view.
+- Stage and unstage per file, per hunk or per line. Click the line numbers to
+  select lines (<kbd>⇧</kbd>-click for a range), then **Stage lines**.
+- Discard a file, a hunk, some lines or everything. Gibbon always asks first.
+- Gibbon watches the repository and refreshes by itself.
 
-**Branches and stashes**
-- Create (⇧⌘N, or from a branch or commit), rename, delete, switch
-  (double-click).
-- Stashes in the sidebar: look at the diff, then **Apply**, **Pop** or
-  **Drop**.
+### Cherry-pick into your branch
 
-**GitHub**
-- Open pull requests in the sidebar, through the `gh` CLI and its sign-in.
-  Click one to browse its commits (forks too), or check it out.
+Click a branch or a pull request in the sidebar to browse it. You stay on your
+branch the whole time:
+
+- Commits your branch already has are dimmed.
+- Commits you picked before are marked **picked**.
+- Select commits (click, <kbd>⌘</kbd>-click, <kbd>⇧</kbd>-click) and click
+  **Pick into …**. Merge commits pick against their first parent.
+
+### Interactive rebase
+
+Right-click a commit ▸ **Interactive Rebase from Here…**. Set *pick*,
+*reword*, *squash*, *fixup* or *drop* per commit and reorder them. Uncommitted
+changes are stashed first and restored after.
+
+### Branches, stashes and conflicts
+
+- Create, rename, delete and switch branches (double-click to switch).
+- Stash all changes, look at a stash's diff, then apply, pop or drop it.
+- When a cherry-pick, rebase, merge or revert stops on a conflict, Gibbon
+  shows **Continue**, **Skip** and **Abort**.
+
+### GitHub
+
+- Open pull requests appear in the sidebar, through the
+  [GitHub CLI](https://cli.github.com) and its sign-in. Click one to browse its
+  commits (forks too) and pick from it, or check it out.
 - **Create Pull Request…** on a local branch pushes it and opens GitHub's form.
 
-**Everywhere**
-- Command palette (⌘K): actions, branches, pull requests, repositories.
-- Settings (⌘,): appearance, text sizes, default diff view.
-- Fetch, Pull, Push with ahead and behind counts. Inter for the UI,
-  JetBrains Mono for code.
+### Make it yours
 
-All Git work runs the `git` CLI. Hooks, commit signing, credential helpers
-and SSH keys behave as they do in your terminal.
+Light and dark themes that follow macOS, Inter for the interface and
+JetBrains Mono for code, and settings (<kbd>⌘</kbd><kbd>,</kbd>) for
+appearance, text sizes and the default diff view.
 
-## Shortcuts
+## Getting started
+
+> [!IMPORTANT]
+> Gibbon targets macOS 14 or later. So far it is tested on macOS 27 on Apple
+> Silicon only.
+
+Prerequisites:
+
+- [Rust](https://rustup.rs) (the repository pins the toolchain in
+  `rust-toolchain.toml`)
+- Xcode Command Line Tools
+- Optional: the [GitHub CLI](https://cli.github.com) (`brew install gh`) for
+  pull requests
+
+Run from source:
+
+```sh
+git clone https://github.com/biki/gibbon.git && cd gibbon
+cargo run --release -- /path/to/your/repo
+```
+
+Build the app and drag it into `/Applications`:
+
+```sh
+scripts/bundle.sh      # → target/release/bundle/Gibbon.app
+```
+
+The script signs with a *Developer ID Application* certificate when your
+keychain has one, and ad hoc otherwise.
+
+## Keyboard shortcuts
 
 | Action | Shortcut |
 | --- | --- |
-| Command palette | ⌘K |
-| Settings | ⌘, |
-| Open repository | ⌘O |
-| Changes / History / All branches | ⌘1 / ⌘2 / ⌘3 |
-| Refresh | ⌘R |
-| Commit | ⌘↵ |
-| New branch | ⇧⌘N |
-| Stash changes | ⌥⌘S |
-| Fetch / Pull / Push | ⇧⌘F / ⇧⌘P / ⌘P |
-| Previous / next commit | ↑ / ↓ |
+| Command palette | <kbd>⌘</kbd><kbd>K</kbd> |
+| Settings | <kbd>⌘</kbd><kbd>,</kbd> |
+| Open repository | <kbd>⌘</kbd><kbd>O</kbd> |
+| Changes / History / All branches | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> |
+| Refresh | <kbd>⌘</kbd><kbd>R</kbd> |
+| Commit | <kbd>⌘</kbd><kbd>↵</kbd> |
+| New branch | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> |
+| Stash changes | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd> |
+| Fetch / Pull / Push | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> / <kbd>⌘</kbd><kbd>P</kbd> |
+| Previous / next commit | <kbd>↑</kbd> / <kbd>↓</kbd> |
 
-## Limits
+## Where your data lives
 
-- Hunk and line staging works for changed text files. New, deleted and
-  binary files stage as a whole.
+| What | Where |
+| --- | --- |
+| Settings and recent repositories | `~/Library/Application Support/gibbon/` |
+| Fetched pull request heads | `refs/gibbon/pr/<number>` in your repository |
+| Messages of a paused interactive rebase | `.git/gibbon-rebase/` in your repository |
+
+## Known limits
+
+- Hunk and line staging works for changed text files. New, deleted and binary
+  files stage as a whole.
 - The split view cuts lines at 1,200 characters and has no horizontal scroll.
-- The file watcher reads the top-level `.gitignore` only. Ignored files in
-  deeper folders cause extra (harmless) refreshes.
-- Interactive rebase flattens merge commits and has no `edit` or `exec` step.
+- The file watcher reads the top-level `.gitignore` only, so ignored files in
+  deeper folders can cause extra (harmless) refreshes.
+- Interactive rebase flattens merge commits and has no *edit* or *exec* step.
 - Pull requests: open ones only, no reviews or comments.
-- No in-app updates yet (Sparkle needs a hosted feed). `bundle.sh` signs with
-  a Developer ID when your keychain has one, else ad hoc. It does not
-  notarize.
+- No in-app updates and no notarized builds yet.
 
 ## Development
 
 ```sh
-cargo test          # git backend, graph, highlight and watcher tests
+cargo test      # Git backend, graph, highlighting and watcher tests
 ```
 
 Environment variables for automated UI checks:
@@ -118,7 +170,17 @@ Environment variables for automated UI checks:
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
 | `GIBBON_DIALOG=new-branch\|stash\|palette\|settings` | Open that dialog |
 
-## Licenses
+## Built with
 
-The code is MIT. Inter and JetBrains Mono use the SIL Open Font License 1.1
-(`assets/fonts/`). The theme code follows a pattern from Tusk (MIT).
+[GPUI](https://github.com/zed-industries/zed) and
+[GPUI Kit](https://github.com/longbridge/gpui-kit) for the UI,
+[tree-sitter](https://tree-sitter.github.io) for syntax colors,
+[similar](https://github.com/mitsuhiko/similar) for word diffs and
+[notify](https://github.com/notify-rs/notify) for file watching.
+
+## License
+
+[MIT](LICENSE) © 2026 Benjamin Kaspar.
+The bundled fonts [Inter](https://rsms.me/inter/) and
+[JetBrains Mono](https://www.jetbrains.com/lp/mono/) use the SIL Open Font
+License 1.1 (see `assets/fonts/`).

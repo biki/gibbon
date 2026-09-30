@@ -1430,15 +1430,14 @@ fn dialog_footer(
 
 /// 1234567 -> "1,234,567".
 fn fmt_int(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
+    let digits = n.to_string();
+    let groups: Vec<&str> = digits
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(|g| std::str::from_utf8(g).unwrap_or_default())
+        .collect();
+    groups.join(",")
 }
 
 /// "3m ago" within a week, then a date.

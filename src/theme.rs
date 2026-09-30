@@ -2,7 +2,7 @@
 //! embedded (SIL OFL 1.1, licenses in `assets/fonts/`).
 //!
 //! The palette becomes a kit `ThemeConfig`, so the kit derives the shades we
-//! do not set. Pattern from Tusk (MIT, © 2026 Alpcan Aydın).
+//! do not set.
 
 use std::borrow::Cow;
 use std::rc::Rc;
