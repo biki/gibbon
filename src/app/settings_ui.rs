@@ -150,7 +150,7 @@ fn font_grid(
                 .cursor_pointer()
                 .border_color(if selected { t.colors.primary } else { t.colors.border })
                 .when(selected, |d| d.bg(t.colors.primary.opacity(0.14)))
-                .when(!selected, |d| d.hover(|d| d.bg(t.colors.list_hover)))
+                .when(!selected, |d| d.child(hover_fill(t.colors.list_hover, px(6.))))
                 .child(
                     div()
                         .font_family(f.family)

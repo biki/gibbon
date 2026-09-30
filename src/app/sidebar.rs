@@ -146,7 +146,7 @@ impl GitApp {
                 .rounded(t.radius)
                 .cursor_pointer()
                 .when(active, |d| d.bg(t.colors.sidebar_accent))
-                .when(!active, |d| d.hover(|d| d.bg(t.colors.list_hover)))
+                .when(!active, |d| d.child(hover_fill(t.colors.list_hover, t.radius)))
         };
         let label = |text: String, strong: bool| {
             div()

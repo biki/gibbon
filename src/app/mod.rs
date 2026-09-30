@@ -27,6 +27,7 @@ use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
 use diff::DiffCtx;
 use files::FileRow;
+use hover::hover_fill;
 use crate::{
     CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowAllBranches,
     ShowChanges, ShowHistory,
@@ -44,6 +45,7 @@ mod settings_ui;
 mod diff;
 mod files;
 mod history;
+mod hover;
 mod sidebar;
 mod stash;
 mod workspace;

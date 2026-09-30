@@ -231,7 +231,7 @@ impl GitApp {
             .pr_3()
             .gap_3()
             .bg(row_bg)
-            .when(!selected, |d| d.hover(|d| d.bg(t.colors.list_hover)))
+            .when(!selected, |d| d.child(hover_fill(t.colors.list_hover, px(0.))))
             .child(graph_cell)
             .child(
                 h_flex()

@@ -311,7 +311,7 @@ impl Workspace {
                     .font_weight(FontWeight::MEDIUM)
             })
             .when(!active, |d| {
-                d.text_color(muted).hover(|d| d.bg(t.colors.list_hover))
+                d.text_color(muted).child(hover_fill(t.colors.list_hover, px(6.)))
             })
             .child(
                 Icon::new(if busy {
@@ -441,7 +441,7 @@ impl Workspace {
                                 .gap_2()
                                 .rounded(t.radius)
                                 .cursor_pointer()
-                                .hover(|d| d.bg(t.colors.list_hover))
+                                .child(hover_fill(t.colors.list_hover, t.radius))
                                 .child(Icon::new(IconName::FolderGit2).size(px(14.)).text_color(muted))
                                 .child(
                                     div().font_weight(FontWeight::MEDIUM).child(

@@ -180,7 +180,7 @@ impl GitApp {
             .gap_1()
             .rounded(t.radius)
             .cursor_pointer()
-            .hover(|d| d.bg(t.colors.list_hover))
+            .child(hover_fill(t.colors.list_hover, t.radius))
             .child(
                 Icon::new(if dir.collapsed {
                     IconName::ChevronRight

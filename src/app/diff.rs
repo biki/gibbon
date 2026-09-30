@@ -638,7 +638,7 @@ pub(super) fn path_row(
         .rounded(t.radius)
         .cursor_pointer()
         .when(selected, |d| d.bg(t.colors.list_active))
-        .when(!selected, |d| d.hover(|d| d.bg(t.colors.list_hover)))
+        .when(!selected, |d| d.child(hover_fill(t.colors.list_hover, t.radius)))
         .child(change_badge(change, cx))
         .child(
             h_flex()
