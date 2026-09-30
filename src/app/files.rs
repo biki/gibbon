@@ -43,11 +43,13 @@ fn split(path: &str) -> (&str, &str) {
     path.rsplit_once('/').unwrap_or(("", path))
 }
 
-/// Ignore case first, then compare exactly, so the order is stable.
+/// Ignore case first, then compare exactly, so the order is stable. It
+/// compares char by char: a sort calls it often, and must not make strings.
 fn name_cmp(a: &str, b: &str) -> Ordering {
-    a.to_lowercase()
-        .cmp(&b.to_lowercase())
-        .then_with(|| a.cmp(b))
+    fn lower(s: &str) -> impl Iterator<Item = char> + '_ {
+        s.chars().flat_map(char::to_lowercase)
+    }
+    lower(a).cmp(lower(b)).then_with(|| a.cmp(b))
 }
 
 #[derive(Default)]
