@@ -336,6 +336,11 @@ Environment variables for automated UI checks:
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 
+`scripts/screenshots.sh` takes the screenshots of this README again. It
+builds a demo repository with agent branches from Gibbon's own history,
+opens Gibbon on it in each view, in dark and in light, and writes
+`docs/screenshots/`. Gibbon windows pop up on top for about two minutes.
+
 ## Built with
 
 [GPUI](https://github.com/zed-industries/zed) and
