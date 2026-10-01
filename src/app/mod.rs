@@ -122,6 +122,7 @@ mod diff;
 mod files;
 mod history;
 mod hover;
+mod image;
 mod palette;
 mod pane;
 mod pulls;
@@ -237,6 +238,8 @@ pub struct GitApp {
     /// Selected Add / Del lines of `change_diff`.
     line_sel: HashSet<usize>,
     line_anchor: Option<usize>,
+    /// The pictures of the shown image file, in any view.
+    image: image::ImagePreview,
     message: Entity<TextareaState>,
     filter: Entity<InputState>,
     /// Enter-to-submit for the open text dialog.
@@ -293,6 +296,8 @@ impl GitApp {
                 this.highlight_shown(cx);
                 this.load_change_diff(cx);
             }),
+            // A closed tab frees the textures of its pictures.
+            cx.on_release(|this, cx| this.image.clear(cx)),
         ];
         GitApp {
             focus: cx.focus_handle(),
@@ -355,6 +360,7 @@ impl GitApp {
             change_styles: None,
             line_sel: HashSet::new(),
             line_anchor: None,
+            image: image::ImagePreview::default(),
             message,
             filter,
             prompt_sub: None,

@@ -28,6 +28,8 @@ pub struct Settings {
     pub code_size: f32,
     /// Diffs open side by side.
     pub split_diff: bool,
+    /// SVG files show their text diff, not their pictures.
+    pub svg_text: bool,
     /// File lists show a tree of folders, not a flat list.
     pub file_tree: bool,
     /// File lists sort names Z to A.
@@ -59,6 +61,7 @@ impl Default for Settings {
             ui_size: 13.,
             code_size: 12.,
             split_diff: false,
+            svg_text: false,
             file_tree: false,
             file_sort_desc: false,
             changes_recent: false,

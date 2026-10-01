@@ -81,6 +81,9 @@ palette and on the welcome screen.
 - Syntax colors for about 35 languages (tree-sitter).
 - Word-level highlights show exactly what changed inside a line.
 - Unified or split (side-by-side) view.
+- Image files (PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, SVG) show as pictures:
+  the old one beside the new one, each with its size in pixels and in bytes.
+  An SVG file has a **Picture** / **Text** switch for its text diff.
 - Changed files show as a list sorted by name (A to Z or Z to A) or as a
   tree of folders. All file lists use the same choice.
 - The Changes list can also show the most recent edits first, by the time of

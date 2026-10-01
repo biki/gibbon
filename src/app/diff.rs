@@ -397,6 +397,18 @@ impl GitApp {
                 )
             })
             .when_some(extra, |d, e| d.child(div().ml_2().child(e)))
+            .when(image::is_svg(&file), |d| {
+                d.child(
+                    segmented(
+                        "svg-view",
+                        &[("Picture", false), ("Text", true)],
+                        crate::settings::get(cx).svg_text,
+                        |text, _, cx| crate::settings::update_layout(cx, |s| s.svg_text = text),
+                        cx,
+                    )
+                    .ml_2(),
+                )
+            })
             .child(
                 segmented(
                     "diff-mode",
@@ -416,8 +428,12 @@ impl GitApp {
                 .text_color(muted)
                 .child(text)
         };
-        let partial = ctx != DiffCtx::Commit && git::supports_partial(&file);
-        let body = if file.binary {
+        let picture = image::picture(&file, cx);
+        // The pictures of an SVG file have no lines to stage.
+        let partial = ctx != DiffCtx::Commit && git::supports_partial(&file) && picture.is_none();
+        let body = if let Some(format) = picture {
+            self.render_image_diff(&file, format, ctx, cx)
+        } else if file.binary {
             note("Binary file, no text diff.").into_any_element()
         } else if file.lines.is_empty() {
             note("No content changes.").into_any_element()

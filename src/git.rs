@@ -657,6 +657,22 @@ pub struct FileDiff {
     pub truncated: bool,
 }
 
+impl FileDiff {
+    /// The blob ids of the old and the new side, from the `index` line.
+    /// Git can shorten them. None for a side that does not exist, and for
+    /// both sides when the diff has no `index` line (a pure rename).
+    pub fn blob_ids(&self) -> (Option<&str>, Option<&str>) {
+        fn present(id: &str) -> Option<&str> {
+            (!id.bytes().all(|b| b == b'0')).then_some(id)
+        }
+        self.header
+            .iter()
+            .find_map(|l| l.strip_prefix("index "))
+            .and_then(|rest| rest.split(' ').next()?.split_once(".."))
+            .map_or((None, None), |(old, new)| (present(old), present(new)))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CommitDetail {
     pub sha: String,
@@ -1012,6 +1028,22 @@ pub fn file_diff(repo: &Repo, entry: &StatusEntry, staged: bool) -> Result<Optio
         repo.git(&["diff", "--no-color", "--", path])?
     };
     Ok(parse_patch(&text).into_iter().next())
+}
+
+/// The size of a blob in bytes. `id` can be short.
+pub fn blob_size(repo: &Repo, id: &str) -> Result<u64> {
+    Ok(repo.git(&["cat-file", "-s", id])?.trim().parse()?)
+}
+
+/// The content of a blob, as Git stores it. `id` can be short.
+pub fn blob(repo: &Repo, id: &str) -> Result<Vec<u8>> {
+    let out = command(&repo.root, &["cat-file", "blob", id])
+        .output()
+        .context("could not start git cat-file")?;
+    if !out.status.success() {
+        bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(out.stdout)
 }
 
 pub fn stage(repo: &Repo, paths: &[String]) -> Result<()> {
@@ -2148,6 +2180,29 @@ mod tests {
         commit(r, "edit a").unwrap();
         let st = status(r).unwrap();
         assert_eq!(st.len(), 1, "only the untracked file is left");
+    }
+
+    #[test]
+    fn blobs_of_a_binary_file() {
+        let t = temp_repo("blobs");
+        let r = &t.0;
+        let (old, new) = (b"\x89PNG\0old".to_vec(), b"\x89PNG\0new!".to_vec());
+        std::fs::write(r.root.join("a.png"), &old).unwrap();
+        stage(r, &["a.png".into()]).unwrap();
+        let st = status(r).unwrap();
+        let added = file_diff(r, &st[0], true).unwrap().unwrap();
+        assert!(added.binary);
+        let (none, id) = added.blob_ids();
+        assert_eq!(none, None, "an added file has no old side");
+        assert_eq!(blob(r, id.unwrap()).unwrap(), old);
+        assert_eq!(blob_size(r, id.unwrap()).unwrap(), old.len() as u64);
+
+        commit(r, "add a.png").unwrap();
+        std::fs::write(r.root.join("a.png"), &new).unwrap();
+        let st = status(r).unwrap();
+        let changed = file_diff(r, &st[0], false).unwrap().unwrap();
+        let (was, _) = changed.blob_ids();
+        assert_eq!(was, id, "the old side is the committed blob");
     }
 
     fn lines_where(f: &FileDiff, kind: LineKind, text: &str) -> usize {
