@@ -1,6 +1,7 @@
 //! Changes: staged and unstaged files, the commit box, and the file's diff.
 
 use std::ops::Range;
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::ContextMenuExt as _;
@@ -21,6 +22,35 @@ enum Row {
         staged: bool,
         depth: Option<usize>,
     },
+}
+
+/// How long the rows of a file that changed on disk stay highlighted.
+pub(super) const FLASH: Duration = Duration::from_millis(2500);
+
+/// A highlight in `color` under the content of a row whose file changed at
+/// `at`: an outline and a faint fill, so it does not look like the
+/// selection, which is a fill in the accent color. It fades out over
+/// `FLASH`, slowly at first. Add it before the content of a row.
+pub(super) fn flash_fill(at: Instant, color: Hsla, radius: Pixels) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let t = at.elapsed().as_secs_f32() / FLASH.as_secs_f32();
+            if t < 1. {
+                // While it fades, draw the pane again on the next frame.
+                window.request_animation_frame();
+                let fade = 1. - t * t * t;
+                window.paint_quad(
+                    fill(bounds, color.opacity(0.10 * fade))
+                        .corner_radii(radius)
+                        .border_widths(px(1.))
+                        .border_color(color.opacity(0.85 * fade)),
+                );
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
 }
 
 /// The file tree of each side keeps its own closed folders.
@@ -366,11 +396,16 @@ impl GitApp {
                 let change =
                     if staged { e.staged } else { e.unstaged }.unwrap_or(git::Change::Modified);
                 let selected = self.change_sel.as_ref() == Some(&(e.path.clone(), staged));
+                let flash = self
+                    .edited
+                    .get(&e.path)
+                    .copied()
+                    .filter(|at| at.elapsed() < FLASH);
                 let (path, path2) = (e.path.clone(), e.path.clone());
                 let entry_menu = e.clone();
                 let root = self.repo.as_ref().map(|r| r.root.clone());
                 let this = cx.entity();
-                diff::path_row(&e.path, change, selected, depth, ("change", ix), cx)
+                diff::path_row(&e.path, change, selected, flash, depth, ("change", ix), cx)
                     .child(
                         button(("stage", ix))
                             .ghost()

@@ -94,8 +94,8 @@ Next steps:
   branch (it counts as merged now), and an undo for the deletes (see
   **Deleted branches** above).
 - **Sort Changes by recent edits** — done. The sort button of the Changes
-  list has **Recent Edits First**: the newest file on disk first. Next:
-  briefly highlight the files that changed in the last refresh.
+  list has **Recent Edits First**: the newest file on disk first. The files
+  that changed in the last refresh flash for a moment.
 - **Blame and file history** — idea. Go from a line in the diff to the
   commit that wrote it, and from that commit to its pull request.
 - **History search** — idea. Filter the history by message, author or path.

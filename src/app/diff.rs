@@ -940,15 +940,17 @@ pub(super) fn file_row(
                 .text_color(cx.theme().colors.red)
                 .child(format!("−{}", f.deletions)),
         );
-    path_row(&f.path, letter, selected, depth, id, cx).child(counts)
+    path_row(&f.path, letter, selected, None, depth, id, cx).child(counts)
 }
 
 /// Name first, folder after it in muted text. At a `depth` of a tree, the
-/// row is indented and the folder rows above it show the folder.
+/// row is indented and the folder rows above it show the folder. With
+/// `flash`, the time the file changed, the row flashes (`changes::FLASH`).
 pub(super) fn path_row(
     path: &str,
     change: git::Change,
     selected: bool,
+    flash: Option<std::time::Instant>,
     depth: Option<usize>,
     id: impl Into<ElementId>,
     cx: &App,
@@ -970,6 +972,9 @@ pub(super) fn path_row(
         .when(selected, |d| d.bg(t.colors.list_active))
         .when(!selected, |d| {
             d.child(hover_fill(t.colors.list_hover, t.radius))
+        })
+        .when_some(flash, |d, at| {
+            d.child(changes::flash_fill(at, t.colors.primary, t.radius))
         })
         .child(change_badge(change, cx))
         .child(

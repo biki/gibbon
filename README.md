@@ -87,7 +87,8 @@ palette and on the welcome screen.
 - Stage and unstage per file, per hunk or per line. Click the line numbers to
   select lines (<kbd>⇧</kbd>-click for a range), then **Stage lines**.
 - Discard a file, a hunk, some lines or everything. Gibbon always asks first.
-- Gibbon watches the repository and refreshes by itself.
+- Gibbon watches the repository and refreshes by itself. A file that changed
+  on disk since the last refresh flashes in the list for a moment.
 
 ### Cherry-pick into your branch
 

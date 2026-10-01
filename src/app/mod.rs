@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{ButtonVariant, ButtonVariants as _};
@@ -160,6 +160,9 @@ pub struct GitApp {
     /// no time on disk. The files that were gone at the first load are not in
     /// it.
     deleted_at: HashMap<String, SystemTime>,
+    /// When a status load saw each file change on disk: its rows flash for
+    /// `changes::FLASH`.
+    edited: HashMap<String, Instant>,
     stashes: Vec<git::Stash>,
     prs: Vec<crate::github::PullRequest>,
     /// Checks, review and merge state of the pull requests, by number.
@@ -291,6 +294,7 @@ impl GitApp {
             branches: vec![],
             status: vec![],
             deleted_at: HashMap::new(),
+            edited: HashMap::new(),
             stashes: vec![],
             prs: vec![],
             pr_status: HashMap::new(),
@@ -685,18 +689,28 @@ impl GitApp {
         .detach();
     }
 
-    /// Take a new working-tree status. A file that is newly deleted gets the
-    /// time of now. Before the first load (`refs_loaded`), no file is new.
+    /// Take a new working-tree status. A file that is new in the list, or
+    /// whose time on disk moved, flashes in the Changes list. A file that is
+    /// newly deleted gets the time of now. Before the first load
+    /// (`refs_loaded`), no file is new.
     fn set_status(&mut self, status: Vec<StatusEntry>) {
-        let now = SystemTime::now();
+        let (now, flash) = (SystemTime::now(), Instant::now());
         let before: HashMap<&str, Option<SystemTime>> = self
             .status
             .iter()
             .map(|e| (e.path.as_str(), e.modified))
             .collect();
+        self.edited.retain(|_, at| at.elapsed() < changes::FLASH);
         let mut deleted_at = HashMap::new();
-        for e in status.iter().filter(|e| e.modified.is_none()) {
-            let time = match before.get(e.path.as_str()) {
+        for e in &status {
+            let old = before.get(e.path.as_str());
+            if self.refs_loaded && old != Some(&e.modified) {
+                self.edited.insert(e.path.clone(), flash);
+            }
+            if e.modified.is_some() {
+                continue;
+            }
+            let time = match old {
                 Some(None) => self.deleted_at.get(&e.path).copied(),
                 _ => self.refs_loaded.then_some(now),
             };
