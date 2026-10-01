@@ -16,6 +16,11 @@ behind the Zed editor.
 
 </div>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/history-dark.png">
+  <img src="docs/screenshots/history-light.png" alt="The commit graph of all branches, with the worktrees of the agents in the sidebar">
+</picture>
+
 ## Why Gibbon
 
 - **Native.** No Electron and no web view. The commit list and the diffs are
@@ -90,6 +95,11 @@ palette and on the welcome screen.
 - Gibbon watches the repository and refreshes by itself. A file that changed
   on disk since the last refresh flashes in the list for a moment.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/changes-dark.png">
+  <img src="docs/screenshots/changes-light.png" alt="The Changes view with a staged and an unstaged part of the same file">
+</picture>
+
 ### Cherry-pick into your branch
 
 Click a branch or a pull request in the sidebar to browse it. You stay on your
@@ -99,6 +109,11 @@ branch the whole time:
 - Commits you picked before are marked **picked**.
 - Select commits (click, <kbd>⌘</kbd>-click, <kbd>⇧</kbd>-click) and click
   **Pick into …**. Merge commits pick against their first parent.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/pick-dark.png">
+  <img src="docs/screenshots/pick-light.png" alt="Browsing an agent branch from main: the commits of main are dimmed, and one commit is marked picked">
+</picture>
 
 ### Review a branch
 
@@ -115,6 +130,11 @@ changed since it left its base (`git diff base...branch`).
 - When a worktree has the branch checked out, **Uncommitted changes** adds
   the files of that worktree, new files included. That is the work of an
   agent that has not committed yet. The review updates while the agent works.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
+  <img src="docs/screenshots/review-light.png" alt="The review of an agent branch against main, with the uncommitted changes of its worktree">
+</picture>
 
 ### Interactive rebase
 
@@ -153,6 +173,11 @@ resets, merges, pulls, pushes, and the branch switches of each worktree.
 - A restore is a move too, so you can undo it the same way.
 - The moves since your last look have a dot, and the sidebar counts them.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/activity-dark.png">
+  <img src="docs/screenshots/activity-light.png" alt="The Activity view: commits, an amend, a rebase and a reset that dropped a commit, with Restore">
+</picture>
+
 ### Branch cleanup
 
 Agents leave a branch, and often a worktree, for each task. **Clean Up
@@ -183,6 +208,11 @@ worktrees, in one step.
   branches (`main`, `develop`, …), or a branch that the main worktree, this
   tab's worktree or a locked worktree has checked out.
 - A branch that gets new commits after the list opens stays.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/cleanup-dark.png">
+  <img src="docs/screenshots/cleanup-light.png" alt="The Clean Up Branches dialog with a squash-merged branch, a merged branch and a merged branch with its worktree">
+</picture>
 
 ### Branches, stashes and conflicts
 
@@ -228,6 +258,11 @@ Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
 - Eight code fonts: SF Mono, Geist Mono, IBM Plex Mono, Fira Code,
   Source Code Pro, DM Mono, Martian Mono and JetBrains Mono.
 - Text sizes and the default diff view.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.png">
+  <img src="docs/screenshots/settings-light.png" alt="Settings with the color themes, the interface fonts and the code fonts">
+</picture>
 
 Gibbon remembers its window, its tabs and the sizes of its panes, and
 reopens each repository where you left it: the same view, branch, commit and
