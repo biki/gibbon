@@ -280,6 +280,23 @@ file, and the review with its Viewed marks.
 > Gibbon targets macOS 14 or later. So far it is tested on macOS 27 on Apple
 > Silicon only.
 
+### Install
+
+On a Mac with Apple Silicon, this command installs the latest release in
+`/Applications`. Run it again to update Gibbon.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/biki/gibbon/main/scripts/install.sh | bash
+```
+
+The releases have no Apple notarization. macOS blocks an app without
+notarization when a browser downloads it, until you allow it in System
+Settings › Privacy & Security. The script downloads with `curl`, which does
+not mark the file for this check. The script also checks the signature of
+the download.
+
+### Build from source
+
 Prerequisites:
 
 - [Rust](https://rustup.rs) (the repository pins the toolchain in
