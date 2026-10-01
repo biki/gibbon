@@ -39,6 +39,8 @@ struct CommitMemo {
     subject: SharedString,
     /// The body, joined to the width of the pane.
     body: SharedString,
+    /// The first line of the body, while the body is folded.
+    preview: SharedString,
     rows: Rc<Vec<FileRow>>,
 }
 
@@ -509,8 +511,10 @@ impl GitApp {
                 Some((s, b)) => (s.to_string(), reflow(b).trim().to_string()),
                 None => (d.message.clone(), String::new()),
             };
+            let preview = body.lines().find(|l| !l.trim().is_empty()).unwrap_or_default().to_string();
             CommitMemo {
                 subject: subject.into(),
+                preview: preview.into(),
                 body: body.into(),
                 rows: Rc::new(self.file_rows("commit", &files::paths(&d.files), cx)),
             }
@@ -518,10 +522,28 @@ impl GitApp {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         let multi = self.selected.len() > 1;
+        let open = crate::settings::get(cx).commit_body;
+        // The details that the line of the author leaves out.
+        let mut who = vec![
+            format!("{} <{}>", d.author, d.email),
+            format!("Authored {}", fmt_full_time(d.time)),
+        ];
+        // Picks and rebases keep the author but change the committer.
+        if d.committer != d.author || d.commit_time != d.time {
+            who.push(format!("Committed by {} · {}", d.committer, fmt_full_time(d.commit_time)));
+        }
+        let short: Vec<&str> = d.parents.iter().map(|p| &p[..7.min(p.len())]).collect();
+        match short.as_slice() {
+            [] => {}
+            [one] => who.push(format!("Parent {one}")),
+            many => who.push(format!("Parents {}", many.join(", "))),
+        }
+        // Small: the files below are what a commit is about.
         let info = v_flex()
             .flex_none()
-            .p_3()
-            .gap_2()
+            .px_3()
+            .py_2()
+            .gap_1()
             .border_b_1()
             .border_color(t.colors.border)
             .when(multi, |d| {
@@ -534,70 +556,79 @@ impl GitApp {
             })
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(px(13.))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .line_clamp(2)
                     .child(memo.subject.clone()),
+            )
+            .child(
+                h_flex()
+                    .gap_1p5()
+                    .text_size(px(12.))
+                    .text_color(muted)
+                    .child(avatar(&d.author, 16.))
+                    .child(
+                        h_flex()
+                            .id("commit-author")
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(div().min_w_0().truncate().child(d.author.clone()))
+                            .child("·")
+                            .child(div().flex_none().child(fmt_time(d.time)))
+                            .tooltip(pulls::lines_tooltip(Rc::new(who))),
+                    )
+                    .when(d.parents.len() > 1, |el| {
+                        el.child(
+                            div()
+                                .flex_none()
+                                .px_1p5()
+                                .rounded(px(4.))
+                                .bg(t.colors.muted)
+                                .text_size(px(11.))
+                                .child("merge"),
+                        )
+                    })
+                    .child(sha_chip(&d.sha, cx)),
             )
             .when(!memo.body.is_empty(), |el| {
                 el.child(
-                    div()
-                        .id("commit-body")
-                        .max_h(px(120.))
-                        .overflow_y_scroll()
+                    h_flex()
+                        .id("commit-body-toggle")
+                        .gap_1()
+                        .text_size(px(12.))
                         .text_color(muted)
-                        .child(memo.body.clone()),
+                        .cursor_pointer()
+                        .hover(|d| d.text_color(t.colors.foreground))
+                        .child(
+                            Icon::new(if open {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            })
+                            .size(px(12.)),
+                        )
+                        .child(div().min_w_0().truncate().child(if open {
+                            "Hide message".into()
+                        } else {
+                            memo.preview.clone()
+                        }))
+                        .on_click(|_, _, cx| {
+                            crate::settings::update_layout(cx, |s| s.commit_body = !s.commit_body)
+                        }),
                 )
-            })
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(avatar(&d.author, 22.))
-                    .child(
-                        v_flex()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .truncate()
-                                    .child(d.author.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(muted)
-                                    .truncate()
-                                    .child(format!("{} · {}", d.email, fmt_full_time(d.time))),
-                            ),
-                    ),
-            )
-            // Picks and rebases keep the author but change the committer.
-            .when(d.committer != d.author || d.commit_time != d.time, |el| {
-                el.child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(muted)
-                        .child(format!(
-                            "Committed by {} · {}",
-                            d.committer,
-                            fmt_full_time(d.commit_time)
-                        )),
-                )
-            })
-            .child(
-                h_flex()
-                    .gap_2()
-                    .text_size(px(11.5))
-                    .text_color(muted)
-                    .child(sha_chip(&d.sha, cx))
-                    .when(!d.parents.is_empty(), |el| {
-                        el.child(if d.parents.len() > 1 { "parents" } else { "parent" })
-                            .children(
-                                d.parents
-                                    .iter()
-                                    .map(|p| div().font_family(crate::theme::mono_font(cx)).child(p[..7].to_string())),
-                            )
-                    }),
-            );
+                .when(open, |el| {
+                    el.child(
+                        div()
+                            .id("commit-body")
+                            .max_h(px(160.))
+                            .overflow_y_scroll()
+                            .text_size(px(12.))
+                            .text_color(muted)
+                            .child(memo.body.clone()),
+                    )
+                })
+            });
         let files_header = files::files_bar(&d.files, cx);
         let rows = memo.rows.clone();
         let files = d.clone();

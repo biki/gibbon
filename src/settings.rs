@@ -37,6 +37,8 @@ pub struct Settings {
     /// The size of the first panel of each split, by the split's id, as the
     /// user last dragged it.
     pub panes: BTreeMap<String, f32>,
+    /// The commit detail shows the whole message, not only the subject.
+    pub commit_body: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +53,7 @@ impl Default for Settings {
             ui_font: crate::fonts::DEFAULT_UI.into(),
             code_font: crate::fonts::DEFAULT_CODE.into(),
             panes: BTreeMap::new(),
+            commit_body: false,
         }
     }
 }

@@ -13,8 +13,8 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::theme::ActiveTheme as _;
 use gpui_kit::component::{
-    Disableable as _, Icon, ResizablePanel, ResizablePanelGroup, Sizable as _, TitleBar, h_flex,
-    h_resizable, resizable_panel, v_flex, v_resizable,
+    Disableable as _, Icon, Sizable as _, TitleBar, h_flex, h_resizable, resizable_panel,
+    v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -1644,9 +1644,11 @@ impl Render for GitApp {
         }
         let body = match (&self.repo, self.view) {
             (None, _) => div().into_any_element(),
-            (Some(_), view) => split("main-split", false)
+            (Some(_), view) => h_resizable("main-split")
                 .child(
-                    split_panel("main-split", 250., 190.0..420., cx)
+                    resizable_panel()
+                        .size(px(250.))
+                        .size_range(px(190.)..px(420.))
                         .child(self.pane(Part::Sidebar, cx)),
                 )
                 .child(resizable_panel().child(match view {
@@ -1764,35 +1766,6 @@ pub(super) fn segmented<L: Into<Segment> + Copy, T: Copy + PartialEq + 'static>(
                 })
                 .on_click(move |_, window, cx| cb(value, window, cx))
         }))
-}
-
-/// A split of the tab that remembers the size of its first panel: a drag
-/// saves it in the settings, and `split_panel` starts there.
-fn split(id: &'static str, vertical: bool) -> ResizablePanelGroup {
-    let group = if vertical { v_resizable(id) } else { h_resizable(id) };
-    group.on_resize(move |state, _, cx| {
-        let Some(size) = state.read(cx).sizes().first().copied() else {
-            return;
-        };
-        let size = f32::from(size).round();
-        crate::settings::update_layout(cx, |s| {
-            s.panes.insert(id.to_string(), size);
-        });
-    })
-}
-
-/// The first panel of the split `id`, at the size it was last dragged to,
-/// else at `default`.
-fn split_panel(id: &'static str, default: f32, range: std::ops::Range<f32>, cx: &App) -> ResizablePanel {
-    let size = crate::settings::get(cx)
-        .panes
-        .get(id)
-        .copied()
-        .unwrap_or(default)
-        .clamp(range.start, range.end);
-    resizable_panel()
-        .size(px(size))
-        .size_range(px(range.start)..px(range.end))
 }
 
 /// Cancel and a confirm button, right-aligned; both close the dialog.

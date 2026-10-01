@@ -216,9 +216,11 @@ impl GitApp {
             .size_full()
             .child(header)
             .child(
-                split("stash-split", false)
+                h_resizable("stash-split")
                     .child(
-                        split_panel("stash-split", 340., 220.0..700., cx)
+                        resizable_panel()
+                            .size(px(340.))
+                            .size_range(px(220.)..px(700.))
                             .child(
                                 div()
                                     .size_full()

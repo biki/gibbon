@@ -44,7 +44,10 @@ behind the Zed editor.
 
 - A commit graph with branch, remote and tag badges, authors and dates.
 - **All branches** draws one graph for every branch, remote branch and tag.
-- Commit details: message, author and committer, changed files and the diff.
+- Commit details: the subject, the author, the date and the commit on two
+  lines, then the changed files and the diff. The message folds to one line;
+  click it to show all of it. The tooltip of the author shows the committer,
+  the full dates and the parents.
 
 ### Diffs
 
