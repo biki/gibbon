@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build Gibbon.app: release binary, Info.plist, icon, signature.
 #   scripts/bundle.sh      → target/release/bundle/Gibbon.app
-# Signs with a "Developer ID Application" identity when the keychain has one
-# (or $GIBBON_SIGN_IDENTITY); otherwise ad hoc, which runs on this Mac.
+# Signs with $GIBBON_SIGN_IDENTITY, else a "Developer ID Application"
+# identity, else the "Gibbon Release" certificate of
+# scripts/make-signing-cert.sh, else ad hoc, which runs on this Mac.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$(pwd)"
@@ -54,6 +55,11 @@ PLIST
 
 identity="${GIBBON_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
   | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)}"
+# Self-signed, so not in the list of valid identities (-v).
+if [ -z "$identity" ] \
+  && security find-identity -p codesigning 2>/dev/null | grep -q '"Gibbon Release"'; then
+  identity="Gibbon Release"
+fi
 if [ -n "$identity" ]; then
   codesign --force --options runtime --timestamp --sign "$identity" "$app"
 else

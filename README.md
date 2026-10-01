@@ -302,7 +302,8 @@ scripts/bundle.sh      # → target/release/bundle/Gibbon.app
 ```
 
 The script signs with a *Developer ID Application* certificate when your
-keychain has one, and ad hoc otherwise.
+keychain has one, then with the *Gibbon Release* certificate of the releases
+(see [CONTRIBUTING.md](CONTRIBUTING.md#releases)), and ad hoc otherwise.
 
 ## Keyboard shortcuts
 

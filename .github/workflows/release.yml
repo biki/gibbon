@@ -1,0 +1,93 @@
+name: Release
+
+# A tag v<version>, with the version in Cargo.toml, builds Gibbon.app, signs
+# it with the "Gibbon Release" certificate (scripts/make-signing-cert.sh) and
+# publishes it as Gibbon.zip in a GitHub release. Installed apps update from
+# the latest release.
+#
+# Secrets: RELEASE_CERTIFICATE (the .p12, base64) and
+# RELEASE_CERTIFICATE_PASSWORD.
+
+# Quoted because YAML 1.1 reads a bare `on` as a boolean.
+'on':
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    # Apple Silicon. Intel Macs build from source.
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml."
+            exit 1
+          fi
+
+      # The toolchain of rust-toolchain.toml.
+      - name: Rust
+        run: |
+          rustup toolchain install --profile minimal \
+            "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+
+      - name: Signing certificate
+        env:
+          CERTIFICATE: ${{ secrets.RELEASE_CERTIFICATE }}
+          PASSWORD: ${{ secrets.RELEASE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$CERTIFICATE" ] || [ -z "$PASSWORD" ]; then
+            echo "::error::Set the RELEASE_CERTIFICATE and RELEASE_CERTIFICATE_PASSWORD secrets (scripts/make-signing-cert.sh)."
+            exit 1
+          fi
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          key_pw="$(openssl rand -base64 24)"
+          echo "$CERTIFICATE" | base64 --decode >"$RUNNER_TEMP/release.p12"
+          security create-keychain -p "$key_pw" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$key_pw" "$keychain"
+          security import "$RUNNER_TEMP/release.p12" -k "$keychain" -P "$PASSWORD" \
+            -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/release.p12"
+          # Lets codesign use the key without a prompt.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$key_pw" "$keychain" >/dev/null
+          # shellcheck disable=SC2046 # one path per word
+          security list-keychains -d user -s "$keychain" \
+            $(security list-keychains -d user | tr -d '"')
+
+      - name: Build
+        env:
+          GIBBON_SIGN_IDENTITY: Gibbon Release
+        run: scripts/bundle.sh
+
+      # An ad hoc signature names the hash of its own code, and an installed
+      # app does not accept it as an update.
+      - name: Check the signature
+        run: |
+          app=target/release/bundle/Gibbon.app
+          codesign --verify --deep --strict "$app"
+          codesign --display -r- "$app" | grep 'certificate leaf'
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd target/release/bundle
+          ditto -c -k --keepParent Gibbon.app Gibbon.zip
+          gh release create "$GITHUB_REF_NAME" Gibbon.zip --repo "$GITHUB_REPOSITORY" \
+            --title "Gibbon ${GITHUB_REF_NAME#v}" --generate-notes
+
+      - name: Delete the keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true

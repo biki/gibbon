@@ -111,3 +111,35 @@ docs: add keyboard shortcuts to the README
 Git's own messages (`Merge …`, `Revert "…"`, `fixup! …`, `squash! …`) pass
 the check. In an emergency, `git commit --no-verify` skips the hook, but CI
 still checks the subject.
+
+## Releases
+
+A tag `v<version>` publishes a release. The version must be the one in
+`Cargo.toml`. `.github/workflows/release.yml` builds Gibbon.app on an Apple
+Silicon runner, signs it, and attaches it to a GitHub release as
+`Gibbon.zip`.
+
+The releases have no Apple notarization. A self-signed certificate,
+*Gibbon Release*, signs them, so each release has the same code identity:
+
+- macOS keeps the folder permissions of Gibbon after an update.
+- An installed Gibbon accepts an update only when it has the same
+  certificate. A changed or foreign download fails this check.
+
+Once, before the first release:
+
+1. Run `scripts/make-signing-cert.sh`. It writes the certificate to
+   `~/.gibbon-signing/` and imports it into your login keychain, so
+   `scripts/bundle.sh` signs your own builds with it too.
+2. Store the certificate as GitHub secrets with the two commands that the
+   script prints.
+3. Keep a copy of `~/.gibbon-signing/` outside this Mac. With a new
+   certificate, installed apps reject all later updates, and users must
+   install Gibbon again.
+
+For each release:
+
+1. Set the new `version` in `Cargo.toml`, run `cargo build` to update
+   `Cargo.lock`, and commit both: `chore: release 0.2.0`.
+2. Tag the commit and push the tag:
+   `git tag v0.2.0 && git push origin v0.2.0`.
