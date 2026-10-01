@@ -48,7 +48,12 @@ impl GitApp {
             Review::Required | Review::None => None,
         };
         if let Some((icon, color)) = review {
-            out.push(Icon::new(icon).size(px(12.)).text_color(color).into_any_element());
+            out.push(
+                Icon::new(icon)
+                    .size(px(12.))
+                    .text_color(color)
+                    .into_any_element(),
+            );
         }
         if let Some(state) = s.checks.state() {
             out.push(checks_icon(state, cx).into_any_element());
@@ -110,10 +115,17 @@ pub(super) fn lines_tooltip(
             v_flex()
                 .gap_0p5()
                 .max_w(px(420.))
-                .children(lines.first().map(|l| {
-                    div().font_weight(FontWeight::SEMIBOLD).child(l.clone())
-                }))
-                .children(lines.iter().skip(1).map(|l| div().text_color(muted).child(l.clone())))
+                .children(
+                    lines
+                        .first()
+                        .map(|l| div().font_weight(FontWeight::SEMIBOLD).child(l.clone())),
+                )
+                .children(
+                    lines
+                        .iter()
+                        .skip(1)
+                        .map(|l| div().text_color(muted).child(l.clone())),
+                )
         })
         .build(window, cx)
     }

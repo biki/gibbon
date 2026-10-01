@@ -76,7 +76,9 @@ fn run_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String> {
 
 /// The repository's `.git` folder (a different place for linked worktrees).
 pub fn git_dir(repo: &Repo) -> Result<PathBuf> {
-    Ok(PathBuf::from(repo.git(&["rev-parse", "--absolute-git-dir"])?.trim()))
+    Ok(PathBuf::from(
+        repo.git(&["rev-parse", "--absolute-git-dir"])?.trim(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -604,7 +606,10 @@ pub fn rebase_run(repo: &Repo, plan: &RebasePlan) -> Result<String> {
     run_env(
         &repo.root,
         &args,
-        &[("GIT_SEQUENCE_EDITOR", editor.as_str()), ("GIT_EDITOR", "true")],
+        &[
+            ("GIT_SEQUENCE_EDITOR", editor.as_str()),
+            ("GIT_EDITOR", "true"),
+        ],
     )
 }
 
@@ -854,16 +859,14 @@ pub fn branch_diff(
         .unwrap_or(0);
     let mut more_new_files = 0;
     let files = match worktree {
-        None => parse_patch(&repo.git(&[
-            "diff",
-            "--no-color",
-            "-M",
-            merge_base.as_str(),
-            target,
-        ])?),
+        None => {
+            parse_patch(&repo.git(&["diff", "--no-color", "-M", merge_base.as_str(), target])?)
+        }
         Some(dir) => {
-            let mut files =
-                parse_patch(&run_in(dir, &["diff", "--no-color", "-M", merge_base.as_str()])?);
+            let mut files = parse_patch(&run_in(
+                dir,
+                &["diff", "--no-color", "-M", merge_base.as_str()],
+            )?);
             let out = run_in(dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
             let new: Vec<&str> = out.split('\0').filter(|p| !p.is_empty()).collect();
             more_new_files = new.len().saturating_sub(REVIEW_NEW_FILES);
@@ -1192,7 +1195,10 @@ pub fn discard(repo: &Repo, entries: &[StatusEntry]) -> Result<()> {
         args.extend(tracked);
         repo.git(&args)?;
     }
-    for e in entries.iter().filter(|e| e.unstaged == Some(Change::Untracked)) {
+    for e in entries
+        .iter()
+        .filter(|e| e.unstaged == Some(Change::Untracked))
+    {
         let path = repo.root.join(&e.path);
         std::fs::remove_file(&path).with_context(|| format!("could not delete {}", e.path))?;
     }
@@ -1242,7 +1248,12 @@ pub fn stashes(repo: &Repo) -> Result<Vec<Stash>> {
         .lines()
         .filter_map(|l| {
             let f: Vec<&str> = l.split('\x1f').collect();
-            let index = f.first()?.strip_prefix("stash@{")?.strip_suffix('}')?.parse().ok()?;
+            let index = f
+                .first()?
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse()
+                .ok()?;
             Some(Stash {
                 index,
                 message: f.get(1)?.to_string(),
@@ -1274,12 +1285,7 @@ pub fn stash_drop(repo: &Repo, index: usize) -> Result<String> {
 /// A stash as a commit: its message, time and full diff, new files included.
 pub fn stash_detail(repo: &Repo, stash: &Stash) -> Result<CommitDetail> {
     let r = stash.refname();
-    let header = repo.git(&[
-        "log",
-        "-1",
-        "--format=%H%x1f%an%x1f%ae%x1f%at",
-        r.as_str(),
-    ])?;
+    let header = repo.git(&["log", "-1", "--format=%H%x1f%an%x1f%ae%x1f%at", r.as_str()])?;
     let f: Vec<&str> = header.trim_end().splitn(4, '\x1f').collect();
     if f.len() < 4 {
         bail!("unexpected git log output for {r}");
@@ -1377,7 +1383,12 @@ pub fn delete_branch(repo: &Repo, name: &str, force: bool) -> Result<()> {
 pub fn merged_branches(repo: &Repo, base: &str) -> Result<HashSet<String>> {
     let merged = format!("--merged={base}");
     Ok(repo
-        .git(&["for-each-ref", merged.as_str(), "--format=%(refname)", "refs/heads"])?
+        .git(&[
+            "for-each-ref",
+            merged.as_str(),
+            "--format=%(refname)",
+            "refs/heads",
+        ])?
         .lines()
         .map(str::to_string)
         .collect())
@@ -1501,7 +1512,8 @@ pub fn push_branch(repo: &Repo, branch: &str) -> Result<()> {
             .or_else(|| remotes(repo).ok()?.into_iter().next().map(|(n, _)| n))
             .ok_or_else(|| anyhow!("This repository has no remote."))?,
     };
-    repo.git(&["push", "-u", remote.as_str(), branch]).map(|_| ())
+    repo.git(&["push", "-u", remote.as_str(), branch])
+        .map(|_| ())
 }
 
 pub fn fetch(repo: &Repo) -> Result<String> {
@@ -1545,7 +1557,11 @@ pub fn base_branch(repo: &Repo) -> Option<String> {
             continue;
         };
         let local = format!("refs/heads/{name}");
-        return Some(if exists(&local) { local } else { target.to_string() });
+        return Some(if exists(&local) {
+            local
+        } else {
+            target.to_string()
+        });
     }
     ["refs/heads/main", "refs/heads/master"]
         .into_iter()
@@ -1596,7 +1612,11 @@ impl Worktree {
 /// The worktrees of the repository, the main one first. Bare entries are
 /// left out: they have no files.
 pub fn worktrees(repo: &Repo) -> Result<Vec<Worktree>> {
-    Ok(parse_worktrees(&repo.git(&["worktree", "list", "--porcelain"])?))
+    Ok(parse_worktrees(&repo.git(&[
+        "worktree",
+        "list",
+        "--porcelain",
+    ])?))
 }
 
 fn parse_worktrees(text: &str) -> Vec<Worktree> {
@@ -1914,17 +1934,27 @@ pub fn ref_moves(repo: &Repo) -> Result<Vec<RefMove>> {
     let mut moves = vec![];
     for (rel, path) in files_under(&logs.join("refs/heads")) {
         let refname = format!("refs/heads/{rel}");
-        moves.extend(read_reflog(&path, &refname, None, since, &|k| k != MoveKind::Switch));
+        moves.extend(read_reflog(&path, &refname, None, since, &|k| {
+            k != MoveKind::Switch
+        }));
     }
     let mut remotes = files_under(&logs.join("refs/remotes"));
     let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
     remotes.sort_by_cached_key(|(_, p)| std::cmp::Reverse(modified(p)));
     for (rel, path) in remotes.into_iter().take(ACTIVITY_REMOTES) {
         let refname = format!("refs/remotes/{rel}");
-        moves.extend(read_reflog(&path, &refname, None, since, &|k| k == MoveKind::Push));
+        moves.extend(read_reflog(&path, &refname, None, since, &|k| {
+            k == MoveKind::Push
+        }));
     }
     let switches = |k| k == MoveKind::Switch;
-    moves.extend(read_reflog(&logs.join("HEAD"), "HEAD", None, since, &switches));
+    moves.extend(read_reflog(
+        &logs.join("HEAD"),
+        "HEAD",
+        None,
+        since,
+        &switches,
+    ));
     if let Ok(entries) = std::fs::read_dir(common.join("worktrees")) {
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -1935,7 +1965,11 @@ pub fn ref_moves(repo: &Repo) -> Result<Vec<RefMove>> {
     // Newest first. Moves in the same second keep their order in the file.
     let mut moves: Vec<(usize, RefMove)> = moves.into_iter().enumerate().collect();
     moves.sort_by(|(ia, a), (ib, b)| b.time.cmp(&a.time).then(ib.cmp(ia)));
-    Ok(moves.into_iter().map(|(_, m)| m).take(ACTIVITY_MAX).collect())
+    Ok(moves
+        .into_iter()
+        .map(|(_, m)| m)
+        .take(ACTIVITY_MAX)
+        .collect())
 }
 
 /// The commits that moving a ref from `old` to `new` added and dropped.
@@ -2052,7 +2086,10 @@ mod tests {
             .into_iter()
             .map(|c| c.subject)
             .collect();
-        assert_eq!(&subjects[..3], ["feature three", "feature one", "feature two"]);
+        assert_eq!(
+            &subjects[..3],
+            ["feature three", "feature one", "feature two"]
+        );
         let states = pick_states(r, "refs/heads/feature").unwrap();
         assert!(states.values().all(|s| *s == PickState::AlreadyPicked));
     }
@@ -2217,7 +2254,8 @@ mod tests {
         commit_file(r, "a.txt", "base", "base");
         let url = origin.0.root.to_string_lossy().into_owned();
         r.git(&["remote", "add", "origin", url.as_str()]).unwrap();
-        r.git(&["push", "-q", "origin", "main:feature/x", "main:gone"]).unwrap();
+        r.git(&["push", "-q", "origin", "main:feature/x", "main:gone"])
+            .unwrap();
         r.git(&["fetch", "-q", "origin"]).unwrap();
         let remote_names = |r: &Repo| -> Vec<String> {
             branches(r)
@@ -2233,7 +2271,12 @@ mod tests {
         );
 
         delete_remote_branch(r, "refs/remotes/origin/feature/x").unwrap();
-        assert!(origin.0.git(&["rev-parse", "-q", "--verify", "refs/heads/feature/x"]).is_err());
+        assert!(
+            origin
+                .0
+                .git(&["rev-parse", "-q", "--verify", "refs/heads/feature/x"])
+                .is_err()
+        );
         assert_eq!(remote_names(r), ["origin/gone"]);
 
         // Someone else deleted it already: only the stale ref goes.
@@ -2254,7 +2297,8 @@ mod tests {
         r.git(&["switch", "-q", "-c", "merged"]).unwrap();
         commit_file(r, "b.txt", "merged", "merged work");
         r.git(&["switch", "-q", "main"]).unwrap();
-        r.git(&["merge", "-q", "--no-ff", "-m", "merge", "merged"]).unwrap();
+        r.git(&["merge", "-q", "--no-ff", "-m", "merge", "merged"])
+            .unwrap();
         // gone: pushed, then its remote branch was deleted (as GitHub does
         // after a squash merge), so main does not have its commit.
         r.git(&["switch", "-q", "-c", "gone"]).unwrap();
@@ -2285,9 +2329,15 @@ mod tests {
         assert!(merged.contains("refs/heads/merged") && merged.contains("refs/heads/main"));
         assert!(!merged.contains("refs/heads/gone") && !merged.contains("refs/heads/open"));
         assert_eq!(commits_not_in(r, &gone_sha, "refs/heads/main").unwrap(), 1);
-        assert_eq!(commits_not_in(r, &get("merged").sha, "refs/heads/main").unwrap(), 0);
+        assert_eq!(
+            commits_not_in(r, &get("merged").sha, "refs/heads/main").unwrap(),
+            0
+        );
         assert!(get("squashed").gone);
-        assert_eq!(commits_not_in(r, &squashed_sha, "refs/heads/main").unwrap(), 1);
+        assert_eq!(
+            commits_not_in(r, &squashed_sha, "refs/heads/main").unwrap(),
+            1
+        );
         assert!(changes_in(r, &squashed_sha, "refs/heads/main"));
         assert!(has_commit(r, &squashed_sha) && !has_commit(r, &"0".repeat(40)));
         assert!(is_ancestor(r, &get("merged").sha, "refs/heads/main"));
@@ -2298,7 +2348,8 @@ mod tests {
         // A branch with a worktree: the worktree goes first.
         let wt_path = r.root.join("merged-wt");
         let wt_arg = wt_path.to_string_lossy().into_owned();
-        r.git(&["worktree", "add", "-q", wt_arg.as_str(), "merged"]).unwrap();
+        r.git(&["worktree", "add", "-q", wt_arg.as_str(), "merged"])
+            .unwrap();
         delete_stale_branch(r, "merged", &get("merged").sha, Some((&wt_path, false))).unwrap();
         assert!(!wt_path.exists());
         assert_eq!(worktrees(r).unwrap().len(), 1);
@@ -2310,7 +2361,11 @@ mod tests {
         r.git(&["switch", "-q", "main"]).unwrap();
         let err = delete_stale_branch(r, "gone", &gone_sha, None).unwrap_err();
         assert!(err.to_string().contains("new commits"), "{err}");
-        let late = branches(r).unwrap().into_iter().find(|b| b.name == "gone").unwrap();
+        let late = branches(r)
+            .unwrap()
+            .into_iter()
+            .find(|b| b.name == "gone")
+            .unwrap();
         // Forced: git would refuse, as main does not have the commits.
         delete_stale_branch(r, "gone", &late.sha, None).unwrap();
         let names: Vec<String> = branches(r)
@@ -2321,7 +2376,9 @@ mod tests {
             .collect();
         assert_eq!(names.len(), 3);
         assert!(names.contains(&"main".to_string()) && names.contains(&"open".to_string()));
-        let config = r.git(&["config", "--get-regexp", "^branch\\."]).unwrap_or_default();
+        let config = r
+            .git(&["config", "--get-regexp", "^branch\\."])
+            .unwrap_or_default();
         assert!(!config.contains("branch.gone."), "{config}");
     }
 
@@ -2338,7 +2395,10 @@ mod tests {
         assert_eq!(list[0].branch(), Some("main"));
         let d = stash_detail(r, &list[0]).unwrap();
         let paths: Vec<&str> = d.files.iter().map(|f| f.path.as_str()).collect();
-        assert!(paths.contains(&"n.txt") && paths.contains(&"new.txt"), "{paths:?}");
+        assert!(
+            paths.contains(&"n.txt") && paths.contains(&"new.txt"),
+            "{paths:?}"
+        );
         stash_apply(r, 0, true).unwrap();
         assert!(stashes(r).unwrap().is_empty());
         assert_eq!(status(r).unwrap().len(), 2);
@@ -2429,7 +2489,8 @@ mod tests {
         assert_eq!(base_branch(r).as_deref(), Some("refs/heads/main"));
         let wt_path = r.root.join("agent-wt");
         let wt_arg = wt_path.to_string_lossy().into_owned();
-        r.git(&["worktree", "add", "-q", "-b", "agent", wt_arg.as_str()]).unwrap();
+        r.git(&["worktree", "add", "-q", "-b", "agent", wt_arg.as_str()])
+            .unwrap();
 
         let list = worktrees(r).unwrap();
         assert_eq!(list.len(), 2);
@@ -2478,7 +2539,8 @@ mod tests {
         // In a worktree: an uncommitted edit and a new file count too.
         let wt = r.root.join("wt");
         let wt_arg = wt.to_string_lossy().into_owned();
-        r.git(&["worktree", "add", "-q", wt_arg.as_str(), "feature"]).unwrap();
+        r.git(&["worktree", "add", "-q", wt_arg.as_str(), "feature"])
+            .unwrap();
         std::fs::write(wt.join("b.txt"), "one\ntwo\nthree\n").unwrap();
         std::fs::write(wt.join("new.txt"), "fresh\n").unwrap();
         let d = branch_diff(r, "refs/heads/main", "refs/heads/feature", Some(&wt)).unwrap();
@@ -2500,7 +2562,8 @@ mod tests {
         r.git(&["switch", "-q", "-c", "agent"]).unwrap();
         commit_file(r, "b.txt", "one", "one");
         let two = commit_file(r, "b.txt", "two", "two");
-        r.git(&["commit", "-q", "--amend", "-m", "two, amended"]).unwrap();
+        r.git(&["commit", "-q", "--amend", "-m", "two, amended"])
+            .unwrap();
         let amended = r.git(&["rev-parse", "HEAD"]).unwrap().trim().to_string();
         r.git(&["reset", "-q", "--hard", "HEAD~1"]).unwrap();
         r.git(&["switch", "-q", "main"]).unwrap();
@@ -2522,21 +2585,42 @@ mod tests {
             ]
         );
         // Only the switches of HEAD: its commits are the branches' moves.
-        let head: Vec<MoveKind> = moves.iter().filter(|m| m.refname == "HEAD").map(|m| m.kind).collect();
+        let head: Vec<MoveKind> = moves
+            .iter()
+            .filter(|m| m.refname == "HEAD")
+            .map(|m| m.kind)
+            .collect();
         assert_eq!(head, [MoveKind::Switch, MoveKind::Switch]);
-        let reset = &moves[moves.iter().position(|m| m.kind == MoveKind::Reset).unwrap()];
+        let reset = &moves[moves
+            .iter()
+            .position(|m| m.kind == MoveKind::Reset)
+            .unwrap()];
         assert!(reset.needs_counts());
         let old = reset.old.clone().unwrap();
         assert_eq!(old, amended);
         assert_eq!(move_counts(r, &old, &reset.new), Some((0, 1)));
-        assert_eq!(moves.iter().find(|m| m.kind == MoveKind::Amend).unwrap().counts, Some((1, 1)));
+        assert_eq!(
+            moves
+                .iter()
+                .find(|m| m.kind == MoveKind::Amend)
+                .unwrap()
+                .counts,
+            Some((1, 1))
+        );
 
         // Restore the branch to before the reset. It is not checked out.
         let now = reset.new.clone();
-        assert!(restore_branch(r, "refs/heads/agent", &old, &two, None).is_err(), "moved since");
+        assert!(
+            restore_branch(r, "refs/heads/agent", &old, &two, None).is_err(),
+            "moved since"
+        );
         restore_branch(r, "refs/heads/agent", &old, &now, None).unwrap();
         assert_eq!(r.git(&["rev-parse", "agent"]).unwrap().trim(), amended);
-        let latest = ref_moves(r).unwrap().into_iter().find(|m| m.refname == "refs/heads/agent").unwrap();
+        let latest = ref_moves(r)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.refname == "refs/heads/agent")
+            .unwrap();
         assert_eq!(latest.kind, MoveKind::Restore);
 
         // Checked out with an uncommitted change: the change stays.
@@ -2544,9 +2628,19 @@ mod tests {
         std::fs::write(r.root.join("a.txt"), "local\n").unwrap();
         restore_branch(r, "refs/heads/agent", &now, &amended, Some(&r.root)).unwrap();
         assert_eq!(r.git(&["rev-parse", "HEAD"]).unwrap().trim(), now);
-        assert_eq!(std::fs::read_to_string(r.root.join("a.txt")).unwrap(), "local\n");
-        let latest = ref_moves(r).unwrap().into_iter().find(|m| m.refname == "refs/heads/agent").unwrap();
-        assert_eq!((latest.kind, latest.new.as_str()), (MoveKind::Restore, now.as_str()));
+        assert_eq!(
+            std::fs::read_to_string(r.root.join("a.txt")).unwrap(),
+            "local\n"
+        );
+        let latest = ref_moves(r)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.refname == "refs/heads/agent")
+            .unwrap();
+        assert_eq!(
+            (latest.kind, latest.new.as_str()),
+            (MoveKind::Restore, now.as_str())
+        );
     }
 
     #[test]
@@ -2555,14 +2649,23 @@ mod tests {
         let (old, new, time, msg) = parse_reflog_line(line).unwrap();
         assert_eq!((old, new.as_str(), time), (None, "abc", 1790792775));
         assert_eq!(msg, "branch: Created from HEAD");
-        assert_eq!(MoveKind::of("rebase (finish): refs/heads/x onto abc"), MoveKind::Rebase);
-        assert_eq!(MoveKind::of("pull --rebase (finish): refs/heads/x onto abc"), MoveKind::Rebase);
+        assert_eq!(
+            MoveKind::of("rebase (finish): refs/heads/x onto abc"),
+            MoveKind::Rebase
+        );
+        assert_eq!(
+            MoveKind::of("pull --rebase (finish): refs/heads/x onto abc"),
+            MoveKind::Rebase
+        );
         assert_eq!(MoveKind::of("pull: Fast-forward"), MoveKind::Pull);
         assert_eq!(MoveKind::of("merge feature: Fast-forward"), MoveKind::Merge);
         assert_eq!(MoveKind::of("branch: Reset to main"), MoveKind::Reset);
         assert_eq!(MoveKind::of("update by push"), MoveKind::Push);
         assert_eq!(MoveKind::of("commit (initial): first"), MoveKind::Commit);
-        assert_eq!(MoveKind::of("gibbon restore: moving to abc"), MoveKind::Restore);
+        assert_eq!(
+            MoveKind::of("gibbon restore: moving to abc"),
+            MoveKind::Restore
+        );
     }
 
     #[test]
@@ -2588,8 +2691,14 @@ mod tests {
         let l = &files[0].lines;
         assert_eq!(l[0].kind, LineKind::Hunk);
         assert_eq!((l[1].old_no, l[1].new_no), (Some(1), Some(1)));
-        assert_eq!((l[2].kind, l[2].old_no, l[2].new_no), (LineKind::Del, Some(2), None));
-        assert_eq!((l[3].kind, l[3].old_no, l[3].new_no), (LineKind::Add, None, Some(2)));
+        assert_eq!(
+            (l[2].kind, l[2].old_no, l[2].new_no),
+            (LineKind::Del, Some(2), None)
+        );
+        assert_eq!(
+            (l[3].kind, l[3].old_no, l[3].new_no),
+            (LineKind::Add, None, Some(2))
+        );
         assert_eq!((l[4].old_no, l[4].new_no), (Some(3), Some(3)));
     }
 }

@@ -149,7 +149,11 @@ impl GitApp {
             .gap_3()
             .border_b_1()
             .border_color(t.colors.border)
-            .child(Icon::new(IconName::Archive).size(px(18.)).text_color(t.colors.primary))
+            .child(
+                Icon::new(IconName::Archive)
+                    .size(px(18.))
+                    .text_color(t.colors.primary),
+            )
             .child(
                 v_flex()
                     .flex_1()
@@ -160,14 +164,12 @@ impl GitApp {
                             .truncate()
                             .child(stash.title().to_string()),
                     )
-                    .child(
-                        div().text_size(px(12.)).text_color(muted).child(format!(
-                            "{} · on {} · {}",
-                            stash.refname(),
-                            stash.branch().unwrap_or("?"),
-                            fmt_time(stash.time)
-                        )),
-                    ),
+                    .child(div().text_size(px(12.)).text_color(muted).child(format!(
+                        "{} · on {} · {}",
+                        stash.refname(),
+                        stash.branch().unwrap_or("?"),
+                        fmt_time(stash.time)
+                    ))),
             )
             .child(
                 Button::new("stash-drop")
@@ -218,14 +220,13 @@ impl GitApp {
             .child(
                 split("stash-split", false)
                     .child(
-                        split_panel("stash-split", 340., 220.0..700., cx)
-                            .child(
-                                div()
-                                    .size_full()
-                                    .border_r_1()
-                                    .border_color(border)
-                                    .child(self.pane(Part::StashFiles, cx)),
-                            ),
+                        split_panel("stash-split", 340., 220.0..700., cx).child(
+                            div()
+                                .size_full()
+                                .border_r_1()
+                                .border_color(border)
+                                .child(self.pane(Part::StashFiles, cx)),
+                        ),
                     )
                     .child(resizable_panel().child(self.pane(Part::Diff, cx))),
             )
@@ -233,11 +234,17 @@ impl GitApp {
     }
 
     /// The files of the shown stash.
-    pub(super) fn render_stash_files(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_stash_files(
+        &mut self,
+        memo: &mut Memo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(d) = self.stash_detail.clone() else {
             return div().into_any_element();
         };
-        let rows = keep(memo, || self.file_rows("stash", &files::paths(&d.files), cx));
+        let rows = keep(memo, || {
+            self.file_rows("stash", &files::paths(&d.files), cx)
+        });
         let files = d.clone();
         let list = uniform_list(
             "stash-files",
@@ -248,16 +255,22 @@ impl GitApp {
                         FileRow::Dir(ref dir) => this.dir_row("stash", dir, ("stash-dir", i), cx),
                         FileRow::File { ix, depth } => {
                             let selected = this.stash_file == ix;
-                            diff::file_row(&files.files[ix], selected, depth, ("stash-file", ix), cx)
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.stash_file = ix;
-                                        this.highlight_shown(cx);
-                                        cx.notify();
-                                    }),
-                                )
-                                .into_any_element()
+                            diff::file_row(
+                                &files.files[ix],
+                                selected,
+                                depth,
+                                ("stash-file", ix),
+                                cx,
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.stash_file = ix;
+                                    this.highlight_shown(cx);
+                                    cx.notify();
+                                }),
+                            )
+                            .into_any_element()
                         }
                     })
                     .collect::<Vec<_>>()

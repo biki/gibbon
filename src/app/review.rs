@@ -81,7 +81,9 @@ impl GitApp {
         if own {
             self.status.len()
         } else {
-            self.worktree_info.get(&w.path).map_or(0, |(_, i)| i.changed)
+            self.worktree_info
+                .get(&w.path)
+                .map_or(0, |(_, i)| i.changed)
         }
     }
 
@@ -127,7 +129,11 @@ impl GitApp {
     }
 
     /// Review a pull request against its base branch.
-    pub(super) fn start_pr_review(&mut self, pr: &crate::github::PullRequest, cx: &mut Context<Self>) {
+    pub(super) fn start_pr_review(
+        &mut self,
+        pr: &crate::github::PullRequest,
+        cx: &mut Context<Self>,
+    ) {
         let local = format!("refs/heads/{}", pr.base);
         let base = self
             .branches
@@ -135,7 +141,8 @@ impl GitApp {
             .find(|b| b.refname == local)
             .or_else(|| {
                 self.branches.iter().find(|b| {
-                    b.kind == RefKind::Remote && b.name.split_once('/').map(|(_, n)| n) == Some(pr.base.as_str())
+                    b.kind == RefKind::Remote
+                        && b.name.split_once('/').map(|(_, n)| n) == Some(pr.base.as_str())
                 })
             })
             .map(|b| b.refname.clone());
@@ -394,7 +401,9 @@ impl GitApp {
             }
         };
         let checkout = self.checkout_of(&ui.target).cloned();
-        let uncommitted = checkout.as_ref().map(|w| (self.changed_in(w), ui.worktree.is_some()));
+        let uncommitted = checkout
+            .as_ref()
+            .map(|w| (self.changed_in(w), ui.worktree.is_some()));
         let target_ref = ui.target.clone();
         let header = h_flex()
             .flex_none()
@@ -403,7 +412,11 @@ impl GitApp {
             .gap_3()
             .border_b_1()
             .border_color(t.colors.border)
-            .child(Icon::new(IconName::GitCompare).size(px(18.)).text_color(t.colors.primary))
+            .child(
+                Icon::new(IconName::GitCompare)
+                    .size(px(18.))
+                    .text_color(t.colors.primary),
+            )
             .child(
                 v_flex()
                     .flex_1()
@@ -412,14 +425,23 @@ impl GitApp {
                         h_flex()
                             .gap_1()
                             .child("Review")
-                            .child(div().font_weight(FontWeight::SEMIBOLD).truncate().child(target))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .truncate()
+                                    .child(target),
+                            )
                             .child(div().text_color(muted).child("against"))
                             .child(self.review_base_button(cx)),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
-                            .text_color(if ui.error.is_some() { t.colors.red } else { muted })
+                            .text_color(if ui.error.is_some() {
+                                t.colors.red
+                            } else {
+                                muted
+                            })
                             .truncate()
                             .child(summary),
                     ),
@@ -471,14 +493,13 @@ impl GitApp {
                 let border = t.colors.border;
                 split("review-split", false)
                     .child(
-                        split_panel("review-split", 340., 220.0..700., cx)
-                            .child(
-                                div()
-                                    .size_full()
-                                    .border_r_1()
-                                    .border_color(border)
-                                    .child(self.pane(Part::ReviewFiles, cx)),
-                            ),
+                        split_panel("review-split", 340., 220.0..700., cx).child(
+                            div()
+                                .size_full()
+                                .border_r_1()
+                                .border_color(border)
+                                .child(self.pane(Part::ReviewFiles, cx)),
+                        ),
                     )
                     .child(resizable_panel().child(self.pane(Part::Diff, cx)))
                     .into_any_element()
@@ -503,7 +524,12 @@ impl GitApp {
             .branches
             .iter()
             .filter(|b| b.kind == RefKind::Local)
-            .chain(self.branches.iter().filter(|b| b.kind == RefKind::Remote).take(20))
+            .chain(
+                self.branches
+                    .iter()
+                    .filter(|b| b.kind == RefKind::Remote)
+                    .take(20),
+            )
             .filter(|b| b.refname != target)
             .map(|b| (b.refname.clone(), b.name.clone()))
             .collect();
@@ -518,7 +544,11 @@ impl GitApp {
                     .text_size(px(crate::settings::get(cx).ui_size))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(short_ref(&current))
-                    .child(Icon::new(IconName::ChevronDown).size(px(12.)).text_color(muted)),
+                    .child(
+                        Icon::new(IconName::ChevronDown)
+                            .size(px(12.))
+                            .text_color(muted),
+                    ),
             )
             .dropdown_menu(move |mut menu, _, _| {
                 menu = menu.label("Compare with").max_h(px(420.)).scrollable(true);
@@ -539,11 +569,17 @@ impl GitApp {
     }
 
     /// The files of the review, each with its Viewed check.
-    pub(super) fn render_review_files(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_review_files(
+        &mut self,
+        memo: &mut Memo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(d) = self.review.as_ref().and_then(|r| r.diff.clone()) else {
             return div().into_any_element();
         };
-        let rows = keep(memo, || self.file_rows("review", &files::paths(&d.files), cx));
+        let rows = keep(memo, || {
+            self.file_rows("review", &files::paths(&d.files), cx)
+        });
         let files = d.clone();
         let list = uniform_list(
             "review-files",
@@ -555,31 +591,37 @@ impl GitApp {
                         FileRow::File { ix, depth } => {
                             let selected = this.review.as_ref().is_some_and(|r| r.file == ix);
                             let viewed = this.is_viewed(ix);
-                            diff::file_row(&files.files[ix], selected, depth, ("review-file", ix), cx)
-                                .when(viewed, |d| d.opacity(0.55))
-                                .child(
-                                    // A click on the check is not also a
-                                    // click on the row.
-                                    div()
-                                        .flex_none()
-                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                            cx.stop_propagation()
-                                        })
-                                        .child(
-                                            Checkbox::new(("viewed", ix))
-                                                .small()
-                                                .checked(viewed)
-                                                .tooltip("Viewed")
-                                                .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                                    this.toggle_viewed(ix, cx)
-                                                })),
-                                        ),
-                                )
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| this.show_review_file(ix, cx)),
-                                )
-                                .into_any_element()
+                            diff::file_row(
+                                &files.files[ix],
+                                selected,
+                                depth,
+                                ("review-file", ix),
+                                cx,
+                            )
+                            .when(viewed, |d| d.opacity(0.55))
+                            .child(
+                                // A click on the check is not also a
+                                // click on the row.
+                                div()
+                                    .flex_none()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .child(
+                                        Checkbox::new(("viewed", ix))
+                                            .small()
+                                            .checked(viewed)
+                                            .tooltip("Viewed")
+                                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                                                this.toggle_viewed(ix, cx)
+                                            })),
+                                    ),
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| this.show_review_file(ix, cx)),
+                            )
+                            .into_any_element()
                         }
                     })
                     .collect::<Vec<_>>()

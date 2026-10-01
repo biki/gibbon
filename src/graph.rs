@@ -88,9 +88,7 @@ pub fn layout(commits: &[Commit]) -> Graph {
             .filter_map(|p| index.get(p.as_str()).copied())
             .collect();
         for (n, &p) in parents.iter().enumerate() {
-            let existing = lanes
-                .iter()
-                .position(|s| s.map(|(c, _)| c) == Some(p));
+            let existing = lanes.iter().position(|s| s.map(|(c, _)| c) == Some(p));
             match existing {
                 // Join the lane that already waits for this parent. A first
                 // parent only joins to its left, so the main line never
@@ -211,9 +209,7 @@ pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut 
     let node = Bounds::new(point(px(cx - r), px(cy - r)), size(px(2. * r), px(2. * r)));
     let color = lane_color(row.color);
     if row.merge {
-        window.paint_quad(
-            quad(node, px(r), bg, px(LINE_W), color, BorderStyle::Solid),
-        );
+        window.paint_quad(quad(node, px(r), bg, px(LINE_W), color, BorderStyle::Solid));
     } else {
         window.paint_quad(fill(node, color).corner_radii(px(r)));
     }
@@ -257,7 +253,10 @@ mod tests {
         assert_eq!(g.rows[1].lane, 1);
         assert_eq!(g.rows[2].lane, 0);
         // b keeps lane 0; both lanes meet at a, on lane 0.
-        assert!(matches!(g.rows[2].edges.last(), Some(Edge::Out { to: 0, .. })));
+        assert!(matches!(
+            g.rows[2].edges.last(),
+            Some(Edge::Out { to: 0, .. })
+        ));
         assert_eq!(g.rows[3].lane, 0);
         let ins = g.rows[3]
             .edges
@@ -272,7 +271,10 @@ mod tests {
         // Two tips on the same base: the second tip joins lane 0 early.
         let g = layout(&[c("x", &["a"]), c("y", &["a"]), c("a", &[])]);
         assert_eq!(g.rows[1].lane, 1);
-        assert!(matches!(g.rows[1].edges.last(), Some(Edge::Out { to: 0, .. })));
+        assert!(matches!(
+            g.rows[1].edges.last(),
+            Some(Edge::Out { to: 0, .. })
+        ));
         assert_eq!(g.width, 2);
     }
 }

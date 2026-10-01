@@ -226,7 +226,15 @@ pub fn commit_oids(repo: &Repo, number: u64) -> Result<Vec<String>> {
     let number = number.to_string();
     let out = gh(
         repo,
-        &["pr", "view", number.as_str(), "--json", "commits", "--jq", ".commits[].oid"],
+        &[
+            "pr",
+            "view",
+            number.as_str(),
+            "--json",
+            "commits",
+            "--jq",
+            ".commits[].oid",
+        ],
     )?;
     Ok(out.lines().map(str::to_string).collect())
 }
@@ -338,7 +346,14 @@ fn parse_status(v: &Value) -> PrStatus {
 fn base_remote(repo: &Repo) -> Result<String> {
     let name = gh(
         repo,
-        &["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        &[
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "-q",
+            ".nameWithOwner",
+        ],
     )?;
     let name = name.trim().to_lowercase();
     let remotes = git::remotes(repo)?;

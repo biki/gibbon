@@ -35,7 +35,10 @@ pub(super) struct Dir {
 pub(super) enum FileRow {
     Dir(Dir),
     /// The file at `ix` of the input. `depth` is `None` in the flat list.
-    File { ix: usize, depth: Option<usize> },
+    File {
+        ix: usize,
+        depth: Option<usize>,
+    },
 }
 
 /// Folder and name of a path.
@@ -208,7 +211,14 @@ impl GitApp {
                 .size(px(14.))
                 .text_color(muted),
             )
-            .child(div().ml_1().flex_1().min_w_0().truncate().child(dir.name.clone()))
+            .child(
+                div()
+                    .ml_1()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(dir.name.clone()),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_dir(scope, key.clone(), cx)))
             .into_any_element()
     }
@@ -263,7 +273,10 @@ pub(super) fn view_buttons(cx: &App) -> impl IntoElement {
             "files-view",
             &[
                 (Segment::Icon(IconName::List, "List, sorted by name"), false),
-                (Segment::Icon(IconName::ListTree, "Tree, grouped by folder"), true),
+                (
+                    Segment::Icon(IconName::ListTree, "Tree, grouped by folder"),
+                    true,
+                ),
             ],
             s.file_tree,
             |tree, _, cx| crate::settings::update(cx, |s| s.file_tree = tree),

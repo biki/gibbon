@@ -124,7 +124,11 @@ impl GitApp {
                 rows.push(Row::Day(label.into()));
             }
             rows.push(Row::Move(i));
-            times.push(at.map(|a| a.format("%H:%M").to_string()).unwrap_or_default().into());
+            times.push(
+                at.map(|a| a.format("%H:%M").to_string())
+                    .unwrap_or_default()
+                    .into(),
+            );
         }
         ActivityMemo { rows, times }
     }
@@ -151,18 +155,33 @@ impl GitApp {
             .gap_3()
             .border_b_1()
             .border_color(t.colors.border)
-            .child(Icon::new(IconName::Activity).size(px(18.)).text_color(t.colors.primary))
+            .child(
+                Icon::new(IconName::Activity)
+                    .size(px(18.))
+                    .text_color(t.colors.primary),
+            )
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Activity"))
-                    .child(div().text_size(px(12.)).text_color(muted).truncate().child(summary)),
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(muted)
+                            .truncate()
+                            .child(summary),
+                    ),
             );
         v_flex()
             .size_full()
             .child(header)
-            .child(div().flex_1().min_h_0().child(self.pane(Part::Activity, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.pane(Part::Activity, cx)),
+            )
             .into_any_element()
     }
 
@@ -199,7 +218,13 @@ impl GitApp {
         .into_any_element()
     }
 
-    fn render_move(&self, mi: usize, ix: usize, time: &SharedString, cx: &mut Context<Self>) -> AnyElement {
+    fn render_move(
+        &self,
+        mi: usize,
+        ix: usize,
+        time: &SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         let m = &self.moves[mi];
@@ -228,7 +253,11 @@ impl GitApp {
         };
         let (added, dropped) = m.counts.unwrap_or((0, 0));
         let shas = match &m.old {
-            Some(old) => format!("{} → {}", &old[..7.min(old.len())], &m.new[..7.min(m.new.len())]),
+            Some(old) => format!(
+                "{} → {}",
+                &old[..7.min(old.len())],
+                &m.new[..7.min(m.new.len())]
+            ),
             None => m.new[..7.min(m.new.len())].to_string(),
         };
         let mv = m.clone();
@@ -264,7 +293,11 @@ impl GitApp {
                     .px_1p5()
                     .gap_1()
                     .rounded(px(4.))
-                    .bg(if local { t.colors.primary.opacity(0.14) } else { t.colors.muted })
+                    .bg(if local {
+                        t.colors.primary.opacity(0.14)
+                    } else {
+                        t.colors.muted
+                    })
                     .text_color(if local { t.colors.primary } else { muted })
                     .text_size(px(11.))
                     .font_weight(FontWeight::MEDIUM)
@@ -278,7 +311,12 @@ impl GitApp {
                     .flex_1()
                     .min_w_0()
                     .gap_1p5()
-                    .child(div().flex_none().font_weight(FontWeight::MEDIUM).child(m.kind.verb()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(m.kind.verb()),
+                    )
                     .child(div().min_w_0().truncate().text_color(muted).child(detail)),
             )
             .when(added > 0 && m.kind != MoveKind::Created, |d| {
@@ -359,7 +397,13 @@ impl GitApp {
 
     /// Count what a restore of the local branch `refname` to `to` changes,
     /// then confirm it and move the branch.
-    fn restore_dialog(&mut self, refname: String, to: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn restore_dialog(
+        &mut self,
+        refname: String,
+        to: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(repo) = self.repo.clone() else {
             return;
         };
@@ -386,7 +430,11 @@ impl GitApp {
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 let short = |s: &str| s[..7.min(s.len())].to_string();
-                let mut body = format!("This moves {branch} from {} to {}.", short(&now_at), short(&to));
+                let mut body = format!(
+                    "This moves {branch} from {} to {}.",
+                    short(&now_at),
+                    short(&to)
+                );
                 match counts {
                     Some((back, 0)) => body.push_str(&format!(
                         " {back} commit{} come{} back.",
@@ -424,7 +472,9 @@ impl GitApp {
                         this.run_op(
                             "Restoring…",
                             Some(msg),
-                            move |repo| git::restore_branch(repo, &refname, &to, &now_at, dir.as_deref()),
+                            move |repo| {
+                                git::restore_branch(repo, &refname, &to, &now_at, dir.as_deref())
+                            },
                             cx,
                         )
                     },
@@ -516,19 +566,24 @@ fn move_menu(
             )
             .separator();
         let (app, r) = (this.clone(), m.refname.clone());
-        menu = menu.item(PopupMenuItem::new(format!("Browse {branch}")).on_click(move |_, _, cx| {
-            let r = r.clone();
-            app.update(cx, |app, cx| app.show_target(LogTarget::Ref(r), cx));
-        }));
+        menu = menu.item(PopupMenuItem::new(format!("Browse {branch}")).on_click(
+            move |_, _, cx| {
+                let r = r.clone();
+                app.update(cx, |app, cx| app.show_target(LogTarget::Ref(r), cx));
+            },
+        ));
     }
     let new = m.new.clone();
-    menu = menu.item(PopupMenuItem::new("Copy SHA").on_click(move |_, _, cx| {
-        cx.write_to_clipboard(ClipboardItem::new_string(new.clone()))
-    }));
-    if let Some(old) = m.old.clone() {
-        menu = menu.item(PopupMenuItem::new("Copy SHA Before").on_click(move |_, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(old.clone()))
+    menu =
+        menu.item(PopupMenuItem::new("Copy SHA").on_click(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(new.clone()))
         }));
+    if let Some(old) = m.old.clone() {
+        menu = menu.item(
+            PopupMenuItem::new("Copy SHA Before").on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(old.clone()))
+            }),
+        );
     }
     menu
 }

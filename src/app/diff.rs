@@ -4,7 +4,6 @@
 use std::collections::HashSet;
 use std::ops::Range;
 
-
 use crate::git::{DiffLine, FileChange, LineKind, PatchOp};
 use crate::highlight::DiffStyles;
 
@@ -110,7 +109,11 @@ pub(super) fn hunk_lines(file: &FileDiff, hunk: usize) -> HashSet<usize> {
 impl GitApp {
     /// The diff of the shown view: the selected file of the commit, of the
     /// stash, of the review, or of the working tree.
-    pub(super) fn render_shown_diff(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_shown_diff(
+        &mut self,
+        memo: &mut Memo,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let (file, styles, ctx, id) = match self.view {
             View::History => (
                 self.detail
@@ -146,10 +149,22 @@ impl GitApp {
             View::Review => {
                 let ui = self.review.as_ref();
                 let d = ui.and_then(|r| Some((r.diff.clone()?, r.file)));
-                let styles = d.as_ref().and_then(|(d, ix)| self.review_styles.get(&d.sha, *ix));
-                let file = d.filter(|(d, ix)| *ix < d.files.len()).map(|(d, ix)| DiffFile::Of(d, ix));
+                let styles = d
+                    .as_ref()
+                    .and_then(|(d, ix)| self.review_styles.get(&d.sha, *ix));
+                let file = d
+                    .filter(|(d, ix)| *ix < d.files.len())
+                    .map(|(d, ix)| DiffFile::Of(d, ix));
                 let viewed = file.as_ref().and_then(|_| self.viewed_check(cx));
-                return self.render_diff(file, styles, DiffCtx::Commit, "review-diff", viewed, memo, cx);
+                return self.render_diff(
+                    file,
+                    styles,
+                    DiffCtx::Commit,
+                    "review-diff",
+                    viewed,
+                    memo,
+                    cx,
+                );
             }
             View::Rebase | View::Activity => return div().into_any_element(),
         };
@@ -196,7 +211,11 @@ impl GitApp {
             .gap_2()
             .border_b_1()
             .border_color(t.colors.border)
-            .child(Icon::new(IconName::FileDiff).size(px(14.)).text_color(muted))
+            .child(
+                Icon::new(IconName::FileDiff)
+                    .size(px(14.))
+                    .text_color(muted),
+            )
             .child(
                 div()
                     .flex_1()
@@ -325,7 +344,11 @@ impl GitApp {
                 Button::new("sel-stage")
                     .xsmall()
                     .primary()
-                    .label(if staged { "Unstage lines" } else { "Stage lines" })
+                    .label(if staged {
+                        "Unstage lines"
+                    } else {
+                        "Stage lines"
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let chosen = this.line_sel.clone();
                         let op = if staged {
@@ -558,9 +581,10 @@ impl GitApp {
         match (shift, self.line_anchor) {
             (true, Some(a)) => {
                 let (lo, hi) = (a.min(i), a.max(i));
-                self.line_sel.extend((lo..=hi).filter(|&k| {
-                    matches!(file.lines[k].kind, LineKind::Add | LineKind::Del)
-                }));
+                self.line_sel.extend(
+                    (lo..=hi)
+                        .filter(|&k| matches!(file.lines[k].kind, LineKind::Add | LineKind::Del)),
+                );
             }
             _ => {
                 if !self.line_sel.remove(&i) {
@@ -714,7 +738,9 @@ pub(super) fn path_row(
         .rounded(t.radius)
         .cursor_pointer()
         .when(selected, |d| d.bg(t.colors.list_active))
-        .when(!selected, |d| d.child(hover_fill(t.colors.list_hover, t.radius)))
+        .when(!selected, |d| {
+            d.child(hover_fill(t.colors.list_hover, t.radius))
+        })
         .child(change_badge(change, cx))
         .child(
             h_flex()

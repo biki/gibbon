@@ -21,18 +21,19 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::git::{
-    self, Branch, Commit, CommitDetail, FileDiff, HeadInfo, LogTarget, PatchOp, PickState,
-    RefKind, Repo, StatusEntry,
+    self, Branch, Commit, CommitDetail, FileDiff, HeadInfo, LogTarget, PatchOp, PickState, RefKind,
+    Repo, StatusEntry,
 };
 use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
+use crate::{
+    CleanUpBranches, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull, Push, Refresh,
+    SelectNext, SelectPrev, ShowActivity, ShowAllBranches, ShowChanges, ShowHistory, StashChanges,
+    TogglePalette,
+};
 use files::FileRow;
 use hover::hover_fill;
 use pane::{Memo, Part, keep};
-use crate::{
-    CleanUpBranches, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches,
-    ShowChanges, ShowHistory,
-};
 
 type IconName = gpui_kit::assets::IconName;
 
@@ -113,16 +114,16 @@ mod activity;
 mod branches;
 mod changes;
 mod cleanup;
-mod palette;
-mod pulls;
-mod rebase;
-mod review;
-mod settings_ui;
 mod diff;
 mod files;
 mod history;
 mod hover;
+mod palette;
 mod pane;
+mod pulls;
+mod rebase;
+mod review;
+mod settings_ui;
 mod sidebar;
 mod stash;
 mod workspace;
@@ -419,7 +420,9 @@ impl GitApp {
                         (list, current, git::base_branch(&r))
                     });
                     let merged = match &worktrees {
-                        Ok((_, _, Some(base))) => git::merged_branches(&r, base).unwrap_or_default(),
+                        Ok((_, _, Some(base))) => {
+                            git::merged_branches(&r, base).unwrap_or_default()
+                        }
                         _ => HashSet::new(),
                     };
                     let dirs = git::git_dir(&r).map(|git_dir| {
@@ -548,7 +551,10 @@ impl GitApp {
                 while let Ok(more) = rx.try_recv() {
                     change.add(more);
                 }
-                if this.update(cx, |this, cx| this.disk_changed(change, cx)).is_err() {
+                if this
+                    .update(cx, |this, cx| this.disk_changed(change, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -765,7 +771,8 @@ impl GitApp {
                     Ok((d, ix, styles)) => {
                         this.pending_file = None;
                         this.detail_file = ix;
-                        this.detail_styles = FileStyles::new(d.sha.clone(), styles.map(|s| (ix, s)));
+                        this.detail_styles =
+                            FileStyles::new(d.sha.clone(), styles.map(|s| (ix, s)));
                         this.detail = Some(Rc::new(d));
                         this.highlight_shown(cx);
                     }
@@ -793,7 +800,11 @@ impl GitApp {
             .filter(|(list, _)| *list == scope)
             .map(|(_, dir)| dir.clone())
             .collect();
-        move |files| files::first(&files::paths(files), tree, desc, &|dir| closed.contains(dir))
+        move |files| {
+            files::first(&files::paths(files), tree, desc, &|dir| {
+                closed.contains(dir)
+            })
+        }
     }
 
     /// Keep a working-tree file selected while there are changes.
@@ -847,11 +858,13 @@ impl GitApp {
                 match result {
                     Ok((d, styles)) => {
                         // Line numbers change with the diff: drop the selection.
-                        let same = this
-                            .change_diff
-                            .as_ref()
-                            .zip(d.as_ref())
-                            .is_some_and(|(a, b)| a.path == b.path && a.lines.len() == b.lines.len());
+                        let same =
+                            this.change_diff
+                                .as_ref()
+                                .zip(d.as_ref())
+                                .is_some_and(|(a, b)| {
+                                    a.path == b.path && a.lines.len() == b.lines.len()
+                                });
                         if !same {
                             this.line_sel.clear();
                             this.line_anchor = None;
@@ -876,7 +889,11 @@ impl GitApp {
         if let Some(d) = self.stash_detail.clone() {
             self.highlight_file(Shown::Stash, d, self.stash_file, cx);
         }
-        if let Some((d, ix)) = self.review.as_ref().and_then(|r| Some((r.diff.clone()?, r.file))) {
+        if let Some((d, ix)) = self
+            .review
+            .as_ref()
+            .and_then(|r| Some((r.diff.clone()?, r.file)))
+        {
             self.highlight_file(Shown::Review, d, ix, cx);
         }
     }
@@ -1019,16 +1036,21 @@ impl GitApp {
     ) {
         let this = cx.entity();
         let on_ok = Rc::new(on_ok);
-        let (title, ok): (SharedString, SharedString) = (title.to_string().into(), ok.to_string().into());
+        let (title, ok): (SharedString, SharedString) =
+            (title.to_string().into(), ok.to_string().into());
         window.open_dialog(cx, move |dialog, _, _| {
             let (this, on_ok) = (this.clone(), on_ok.clone());
             dialog
                 .title(title.clone())
                 .w(px(420.))
                 .child(div().text_size(px(13.)).child(body.clone()))
-                .footer(dialog_footer(ok.clone(), ButtonVariant::Danger, move |_, cx| {
-                    this.update(cx, |app, cx| on_ok(app, cx));
-                }))
+                .footer(dialog_footer(
+                    ok.clone(),
+                    ButtonVariant::Danger,
+                    move |_, cx| {
+                        this.update(cx, |app, cx| on_ok(app, cx));
+                    },
+                ))
         });
     }
 
@@ -1112,7 +1134,8 @@ impl GitApp {
     fn show_target(&mut self, target: LogTarget, cx: &mut Context<Self>) {
         let target = match target {
             LogTarget::Ref(r)
-                if self.head.branch.as_ref().map(|b| format!("refs/heads/{b}")) == Some(r.clone()) =>
+                if self.head.branch.as_ref().map(|b| format!("refs/heads/{b}"))
+                    == Some(r.clone()) =>
             {
                 LogTarget::Head
             }
@@ -1280,14 +1303,16 @@ impl GitApp {
 
     fn pick_selected(&mut self, cx: &mut Context<Self>) {
         let shas = self.pickable_selection();
-        let merges = shas.iter().any(|sha| {
-            self.commits
-                .iter()
-                .any(|c| &c.sha == sha && c.is_merge())
-        });
+        let merges = shas
+            .iter()
+            .any(|sha| self.commits.iter().any(|c| &c.sha == sha && c.is_merge()));
         if shas.is_empty() {
             let head = self.head_name();
-            self.toast(None, format!("Select commits that {head} does not have yet."), cx);
+            self.toast(
+                None,
+                format!("Select commits that {head} does not have yet."),
+                cx,
+            );
             return;
         }
         let n = shas.len();
@@ -1305,7 +1330,12 @@ impl GitApp {
     }
 
     fn fetch(&mut self, cx: &mut Context<Self>) {
-        self.run_op("Fetching…", Some("Fetched all remotes".into()), git::fetch, cx);
+        self.run_op(
+            "Fetching…",
+            Some("Fetched all remotes".into()),
+            git::fetch,
+            cx,
+        );
         self.load_prs(cx);
     }
 
@@ -1375,7 +1405,11 @@ impl GitApp {
             .pr_status
             .values()
             .any(|s| s.checks.state() == Some(CheckState::Pending));
-        let every = if running { PR_TICK_RUNNING } else { PR_TICK_IDLE };
+        let every = if running {
+            PR_TICK_RUNNING
+        } else {
+            PR_TICK_IDLE
+        };
         self.pr_status_at.is_none_or(|at| at.elapsed() >= every)
     }
 
@@ -1450,8 +1484,7 @@ impl GitApp {
                 this.set_busy(None, cx);
                 match result {
                     Ok(_) => {
-                        this.message
-                            .update(cx, |m, cx| m.set_value("", window, cx));
+                        this.message.update(cx, |m, cx| m.set_value("", window, cx));
                         this.toast(Some(true), "Committed", cx);
                     }
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
@@ -1488,9 +1521,17 @@ impl GitApp {
             .child(
                 h_flex()
                     .gap_1p5()
-                    .child(Icon::new(IconName::GitBranch).size(px(14.)).text_color(muted))
+                    .child(
+                        Icon::new(IconName::GitBranch)
+                            .size(px(14.))
+                            .text_color(muted),
+                    )
                     .child(branch_label)
-                    .child(Icon::new(IconName::ChevronDown).size(px(12.)).text_color(muted)),
+                    .child(
+                        Icon::new(IconName::ChevronDown)
+                            .size(px(12.))
+                            .text_color(muted),
+                    ),
             )
             .dropdown_menu(move |mut menu, _, _| {
                 menu = menu
@@ -1694,20 +1735,22 @@ impl Render for GitApp {
                 this.view = View::Changes;
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ShowHistory, _, cx| {
-                this.show_target(LogTarget::Head, cx)
-            }))
-            .on_action(cx.listener(|this, _: &ShowAllBranches, _, cx| {
-                this.show_target(LogTarget::All, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &ShowHistory, _, cx| this.show_target(LogTarget::Head, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ShowAllBranches, _, cx| {
+                    this.show_target(LogTarget::All, cx)
+                }),
+            )
             .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show_activity(cx)))
             .on_action(cx.listener(|this, _: &Fetch, _, cx| this.fetch(cx)))
             .on_action(cx.listener(|this, _: &Pull, _, cx| this.pull(cx)))
             .on_action(cx.listener(|this, _: &Push, _, cx| this.push(cx)))
             .on_action(cx.listener(|this, _: &CommitChanges, window, cx| this.commit(window, cx)))
-            .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
-                this.open_palette(window, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &TogglePalette, window, cx| this.open_palette(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &StashChanges, window, cx| {
                 if this.repo.is_some() {
                     this.stash_dialog(window, cx)
@@ -1764,7 +1807,9 @@ pub(super) fn segmented<L: Into<Segment> + Copy, T: Copy + PartialEq + 'static>(
             let cb = on_change.clone();
             let (content, tip) = match label.into() {
                 Segment::Text(text) => (text.into_any_element(), None),
-                Segment::Icon(icon, tip) => (Icon::new(icon).size(px(14.)).into_any_element(), Some(tip)),
+                Segment::Icon(icon, tip) => {
+                    (Icon::new(icon).size(px(14.)).into_any_element(), Some(tip))
+                }
             };
             div()
                 .id((id, i))
@@ -1806,7 +1851,11 @@ fn busy_spinner(color: Hsla) -> Spinner {
 /// A split of the tab that remembers the size of its first panel: a drag
 /// saves it in the settings, and `split_panel` starts there.
 fn split(id: &'static str, vertical: bool) -> ResizablePanelGroup {
-    let group = if vertical { v_resizable(id) } else { h_resizable(id) };
+    let group = if vertical {
+        v_resizable(id)
+    } else {
+        h_resizable(id)
+    };
     group.on_resize(move |state, _, cx| {
         let Some(size) = state.read(cx).sizes().first().copied() else {
             return;
@@ -1820,7 +1869,12 @@ fn split(id: &'static str, vertical: bool) -> ResizablePanelGroup {
 
 /// The first panel of the split `id`, at the size it was last dragged to,
 /// else at `default`.
-fn split_panel(id: &'static str, default: f32, range: std::ops::Range<f32>, cx: &App) -> ResizablePanel {
+fn split_panel(
+    id: &'static str,
+    default: f32,
+    range: std::ops::Range<f32>,
+    cx: &App,
+) -> ResizablePanel {
     let size = crate::settings::get(cx)
         .panes
         .get(id)

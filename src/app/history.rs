@@ -7,8 +7,8 @@
 use std::cell::RefCell;
 use std::ops::Range;
 
-use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::Colorize as _;
+use gpui_kit::component::menu::ContextMenuExt as _;
 
 use super::*;
 
@@ -52,15 +52,14 @@ impl GitApp {
         let detail = if self.detail.is_some() {
             split("detail-split", false)
                 .child(
-                    split_panel("detail-split", 380., 260.0..800., cx)
-                        .child(
-                            div()
-                                .size_full()
-                                .border_t_1()
-                                .border_r_1()
-                                .border_color(border)
-                                .child(self.pane(Part::Commit, cx)),
-                        ),
+                    split_panel("detail-split", 380., 260.0..800., cx).child(
+                        div()
+                            .size_full()
+                            .border_t_1()
+                            .border_r_1()
+                            .border_color(border)
+                            .child(self.pane(Part::Commit, cx)),
+                    ),
                 )
                 .child(
                     resizable_panel().child(
@@ -96,7 +95,11 @@ impl GitApp {
             .child(resizable_panel().child(detail))
     }
 
-    pub(super) fn render_log(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_log(
+        &mut self,
+        memo: &mut Memo,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let memo = keep(memo, || self.log_memo());
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
@@ -131,13 +134,15 @@ impl GitApp {
                     .flex_1()
                     .min_h_0()
                     .when(n == 0, |d| {
-                        d.flex().items_center().justify_center().text_color(muted).child(
-                            if self.log_loading {
+                        d.flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(muted)
+                            .child(if self.log_loading {
                                 "Loading history…"
                             } else {
                                 "No commits yet."
-                            },
-                        )
+                            })
                     })
                     .when(n > 0, |d| {
                         d.child(
@@ -170,8 +175,8 @@ impl GitApp {
     fn render_pick_banner(&self, memo: &LogMemo, cx: &mut Context<Self>) -> Option<AnyElement> {
         let target = self.foreign_target()?;
         let t = cx.theme();
-        let pr = crate::github::number_of(target)
-            .and_then(|n| self.prs.iter().find(|p| p.number == n));
+        let pr =
+            crate::github::number_of(target).and_then(|n| self.prs.iter().find(|p| p.number == n));
         let short = pr
             .map(|p| format!("#{} {}", p.number, p.title))
             .unwrap_or_else(|| target.to_string());
@@ -198,9 +203,14 @@ impl GitApp {
         };
         // The pull request of the browsed branch: its checks and review.
         let status_pr = pr
-            .or_else(|| target.strip_prefix("refs/heads/").and_then(|b| self.pr_of_branch(b)))
+            .or_else(|| {
+                target
+                    .strip_prefix("refs/heads/")
+                    .and_then(|b| self.pr_of_branch(b))
+            })
             .map(|p| p.number);
-        let status = status_pr.map(|n| (self.pr_badges(n, cx), self.pr_status_lines(n).join(" · ")))
+        let status = status_pr
+            .map(|n| (self.pr_badges(n, cx), self.pr_status_lines(n).join(" · ")))
             .filter(|(_, text)| !text.is_empty());
         Some(
             h_flex()
@@ -248,7 +258,9 @@ impl GitApp {
                         .ghost()
                         .small()
                         .label(format!("Back to {head}"))
-                        .on_click(cx.listener(|this, _, _, cx| this.show_target(LogTarget::Head, cx))),
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.show_target(LogTarget::Head, cx)),
+                        ),
                 )
                 .child({
                     let (target, pr) = (target.to_string(), pr.cloned());
@@ -314,10 +326,9 @@ impl GitApp {
             |_, _, _| (),
             move |bounds, _, window, _| {
                 if let Some(row) = g.rows.get(ix) {
-                    window.with_content_mask(
-                        Some(ContentMask { bounds }),
-                        |window| graph::paint_row(row, bounds, ring, window),
-                    );
+                    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                        graph::paint_row(row, bounds, ring, window)
+                    });
                 }
             },
         )
@@ -338,7 +349,9 @@ impl GitApp {
             .pr_3()
             .gap_3()
             .bg(row_bg)
-            .when(!selected, |d| d.child(hover_fill(t.colors.list_hover, px(0.))))
+            .when(!selected, |d| {
+                d.child(hover_fill(t.colors.list_hover, px(0.)))
+            })
             .child(graph_cell)
             .child(
                 h_flex()
@@ -430,29 +443,33 @@ impl GitApp {
                 let (this2, start) = (this.clone(), sha.clone());
                 let menu = if on_head {
                     let (this3, from) = (this.clone(), sha.clone());
-                    menu.item(PopupMenuItem::new("Interactive Rebase from Here…").on_click(
-                        move |_, _, cx| {
-                            let from = from.clone();
-                            this3.update(cx, |app, cx| app.start_rebase(from, cx));
-                        },
-                    ))
+                    menu.item(
+                        PopupMenuItem::new("Interactive Rebase from Here…").on_click(
+                            move |_, _, cx| {
+                                let from = from.clone();
+                                this3.update(cx, |app, cx| app.start_rebase(from, cx));
+                            },
+                        ),
+                    )
                 } else {
                     menu
                 };
                 let menu = menu
-                    .item(PopupMenuItem::new("New Branch Here…").on_click(
-                        move |_, window, cx| {
+                    .item(
+                        PopupMenuItem::new("New Branch Here…").on_click(move |_, window, cx| {
                             let s = (start.clone(), start[..7].to_string());
                             this2.update(cx, |app, cx| app.new_branch_dialog(Some(s), window, cx));
-                        },
-                    ))
+                        }),
+                    )
                     .separator();
                 menu.item(PopupMenuItem::new("Copy SHA").on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(sha.clone()))
                 }))
-                .item(PopupMenuItem::new("Copy Subject").on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(subject.clone()))
-                }))
+                .item(
+                    PopupMenuItem::new("Copy Subject").on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(subject.clone()))
+                    }),
+                )
             })
             .into_any_element()
     }
@@ -511,7 +528,11 @@ impl GitApp {
                 Some((s, b)) => (s.to_string(), reflow(b).trim().to_string()),
                 None => (d.message.clone(), String::new()),
             };
-            let preview = body.lines().find(|l| !l.trim().is_empty()).unwrap_or_default().to_string();
+            let preview = body
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or_default()
+                .to_string();
             CommitMemo {
                 subject: subject.into(),
                 preview: preview.into(),
@@ -530,7 +551,11 @@ impl GitApp {
         ];
         // Picks and rebases keep the author but change the committer.
         if d.committer != d.author || d.commit_time != d.time {
-            who.push(format!("Committed by {} · {}", d.committer, fmt_full_time(d.commit_time)));
+            who.push(format!(
+                "Committed by {} · {}",
+                d.committer,
+                fmt_full_time(d.commit_time)
+            ));
         }
         let short: Vec<&str> = d.parents.iter().map(|p| &p[..7.min(p.len())]).collect();
         match short.as_slice() {
@@ -641,16 +666,22 @@ impl GitApp {
                         FileRow::Dir(ref dir) => this.dir_row("commit", dir, ("detail-dir", i), cx),
                         FileRow::File { ix, depth } => {
                             let selected = this.detail_file == ix;
-                            diff::file_row(&files.files[ix], selected, depth, ("detail-file", ix), cx)
-                                .on_mouse_down(
-                                    MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.detail_file = ix;
-                                        this.highlight_shown(cx);
-                                        cx.notify();
-                                    }),
-                                )
-                                .into_any_element()
+                            diff::file_row(
+                                &files.files[ix],
+                                selected,
+                                depth,
+                                ("detail-file", ix),
+                                cx,
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.detail_file = ix;
+                                    this.highlight_shown(cx);
+                                    cx.notify();
+                                }),
+                            )
+                            .into_any_element()
                         }
                     })
                     .collect::<Vec<_>>()
@@ -738,10 +769,22 @@ pub(super) fn plural(n: usize) -> &'static str {
 fn ref_badge(r: &git::RefLabel, cx: &App) -> AnyElement {
     let t = cx.theme();
     let (fg, bg, icon) = match r.kind {
-        RefKind::Local if r.head => (t.colors.primary_foreground, t.colors.primary, IconName::GitBranch),
-        RefKind::Local => (t.colors.primary, t.colors.primary.opacity(0.14), IconName::GitBranch),
+        RefKind::Local if r.head => (
+            t.colors.primary_foreground,
+            t.colors.primary,
+            IconName::GitBranch,
+        ),
+        RefKind::Local => (
+            t.colors.primary,
+            t.colors.primary.opacity(0.14),
+            IconName::GitBranch,
+        ),
         RefKind::Remote => (t.colors.muted_foreground, t.colors.muted, IconName::Cloud),
-        RefKind::Tag => (t.colors.yellow, t.colors.yellow.opacity(0.14), IconName::Tag),
+        RefKind::Tag => (
+            t.colors.yellow,
+            t.colors.yellow.opacity(0.14),
+            IconName::Tag,
+        ),
     };
     h_flex()
         .flex_none()
@@ -798,7 +841,9 @@ fn sha_chip(sha: &str, cx: &App) -> impl IntoElement {
         .font_family(crate::theme::mono_font(cx))
         .child(sha[..sha.len().min(10)].to_string())
         .child(Icon::new(IconName::Copy).size(px(11.)))
-        .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Copy SHA").build(window, cx))
+        .tooltip(|window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new("Copy SHA").build(window, cx)
+        })
         .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(full.clone())))
 }
 
@@ -827,6 +872,9 @@ mod tests {
 
     #[test]
     fn reflow_keeps_a_colon_in_prose() {
-        assert_eq!(reflow("Note: the old\nkey stays."), "Note: the old key stays.");
+        assert_eq!(
+            reflow("Note: the old\nkey stays."),
+            "Note: the old key stays."
+        );
     }
 }

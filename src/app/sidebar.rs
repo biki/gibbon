@@ -135,7 +135,9 @@ pub(super) fn side_row(ix: usize, active: bool, cx: &App) -> Stateful<Div> {
         .rounded(t.radius)
         .cursor_pointer()
         .when(active, |d| d.bg(t.colors.sidebar_accent))
-        .when(!active, |d| d.child(hover_fill(t.colors.list_hover, t.radius)))
+        .when(!active, |d| {
+            d.child(hover_fill(t.colors.list_hover, t.radius))
+        })
 }
 
 impl GitApp {
@@ -147,7 +149,8 @@ impl GitApp {
                 .filter(|&i| {
                     let w = &self.worktrees[i];
                     needle.is_empty()
-                        || w.branch_name().is_some_and(|b| b.to_lowercase().contains(&needle))
+                        || w.branch_name()
+                            .is_some_and(|b| b.to_lowercase().contains(&needle))
                         || w.folder().to_lowercase().contains(&needle)
                 })
                 .collect();
@@ -222,7 +225,11 @@ impl GitApp {
                 key,
                 label,
                 count: matches.len(),
-                stale: if kind == RefKind::Local { self.stale_branches().len() } else { 0 },
+                stale: if kind == RefKind::Local {
+                    self.stale_branches().len()
+                } else {
+                    0
+                },
             });
             if self.collapsed.contains(key) {
                 continue;
@@ -234,10 +241,14 @@ impl GitApp {
             // A filter shows every match.
             let filtering = !needle.is_empty();
             let all = filtering || self.expanded.contains(key);
-            let (shown, fold) = section_branches(&self.branches, &matches, self.base.as_deref(), all);
+            let (shown, fold) =
+                section_branches(&self.branches, &matches, self.base.as_deref(), all);
             rows.extend(shown.into_iter().map(Row::Branch));
             match fold {
-                Fold::More(n) => rows.push(Row::Fold { key, hidden: Some(n) }),
+                Fold::More(n) => rows.push(Row::Fold {
+                    key,
+                    hidden: Some(n),
+                }),
                 Fold::Less if !filtering => rows.push(Row::Fold { key, hidden: None }),
                 _ => {}
             }
@@ -245,7 +256,11 @@ impl GitApp {
         rows
     }
 
-    pub(super) fn render_sidebar(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_sidebar(
+        &mut self,
+        memo: &mut Memo,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let rows = keep(memo, || self.sidebar_rows(cx));
         let t = cx.theme();
         let n = rows.len();
@@ -338,7 +353,11 @@ impl GitApp {
             Row::History => {
                 let active = self.view == View::History && self.target == LogTarget::Head;
                 base(active)
-                    .child(Icon::new(IconName::GitCommitVertical).size(px(15.)).text_color(muted))
+                    .child(
+                        Icon::new(IconName::GitCommitVertical)
+                            .size(px(15.))
+                            .text_color(muted),
+                    )
                     .child(label("History".into(), active))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -349,7 +368,11 @@ impl GitApp {
             Row::All => {
                 let active = self.view == View::History && self.target == LogTarget::All;
                 base(active)
-                    .child(Icon::new(IconName::GitGraph).size(px(15.)).text_color(muted))
+                    .child(
+                        Icon::new(IconName::GitGraph)
+                            .size(px(15.))
+                            .text_color(muted),
+                    )
                     .child(label("All branches".into(), active))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -361,7 +384,11 @@ impl GitApp {
                 let active = self.view == View::Activity;
                 let new = if active { 0 } else { self.new_moves() };
                 base(active)
-                    .child(Icon::new(IconName::Activity).size(px(15.)).text_color(muted))
+                    .child(
+                        Icon::new(IconName::Activity)
+                            .size(px(15.))
+                            .text_color(muted),
+                    )
                     .child(label("Activity".into(), active))
                     .when(new > 0, |d| {
                         d.child(
@@ -371,13 +398,20 @@ impl GitApp {
                                 .bg(t.colors.primary.opacity(0.16))
                                 .text_size(px(11.))
                                 .text_color(t.colors.primary)
-                                .child(if new > 99 { "99+".to_string() } else { new.to_string() }),
+                                .child(if new > 99 {
+                                    "99+".to_string()
+                                } else {
+                                    new.to_string()
+                                }),
                         )
                     })
                     .tooltip(move |window, cx| {
                         let tip = match new {
                             0 => "Moves of all branches  ⌘4".to_string(),
-                            n => format!("{n} new move{} since your last look  ⌘4", history::plural(n)),
+                            n => format!(
+                                "{n} new move{} since your last look  ⌘4",
+                                history::plural(n)
+                            ),
                         };
                         gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
                     })
@@ -387,7 +421,12 @@ impl GitApp {
                     )
                     .into_any_element()
             }
-            &Row::Header { key, label, count, stale } => {
+            &Row::Header {
+                key,
+                label,
+                count,
+                stale,
+            } => {
                 let collapsed = self.collapsed.contains(key);
                 h_flex()
                     .id(("side-head", ix))
@@ -416,14 +455,17 @@ impl GitApp {
                                 .flex_none()
                                 .p(px(3.))
                                 .rounded(px(4.))
-                                .hover(|d| d.bg(t.colors.list_hover).text_color(t.colors.foreground))
+                                .hover(|d| {
+                                    d.bg(t.colors.list_hover).text_color(t.colors.foreground)
+                                })
                                 .child(Icon::new(IconName::Broom).size(px(13.)))
                                 .tooltip(move |window, cx| {
                                     let tip = format!(
                                         "Clean up {stale} merged or gone branch{}…",
                                         if stale == 1 { "" } else { "es" }
                                     );
-                                    gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
+                                    gpui_kit::component::tooltip::Tooltip::new(tip)
+                                        .build(window, cx)
                                 })
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     // Not a click on the header: that folds it.
@@ -454,7 +496,11 @@ impl GitApp {
                             IconName::GitPullRequest
                         })
                         .size(px(14.))
-                        .text_color(if p.draft { muted } else { t.colors.green }),
+                        .text_color(if p.draft {
+                            muted
+                        } else {
+                            t.colors.green
+                        }),
                     )
                     .child(
                         div()
@@ -464,32 +510,34 @@ impl GitApp {
                             .child(format!("#{}", p.number)),
                     )
                     .child(label(p.title.clone(), false))
-                    .child(h_flex().flex_none().gap_1().children(self.pr_badges(p.number, cx)))
+                    .child(
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .children(self.pr_badges(p.number, cx)),
+                    )
                     .tooltip(pulls::lines_tooltip(self.pr_tip(&p)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| this.browse_pr(p.clone(), false, cx)),
                     )
                     .context_menu(move |menu, _, _| {
-                        let (url, url2, n) = (
-                            menu_pr.url.clone(),
-                            menu_pr.url.clone(),
-                            menu_pr.number,
-                        );
+                        let (url, url2, n) =
+                            (menu_pr.url.clone(), menu_pr.url.clone(), menu_pr.number);
                         let (this, this2, this3) = (this.clone(), this.clone(), this.clone());
                         let (browse, review) = (menu_pr.clone(), menu_pr.clone());
-                        menu.item(PopupMenuItem::new("Browse Commits").on_click(
-                            move |_, _, cx| {
+                        menu.item(
+                            PopupMenuItem::new("Browse Commits").on_click(move |_, _, cx| {
                                 let pr = browse.clone();
                                 this.update(cx, |app, cx| app.browse_pr(pr, false, cx));
-                            },
-                        ))
-                        .item(PopupMenuItem::new("Review Changes").on_click(
-                            move |_, _, cx| {
+                            }),
+                        )
+                        .item(
+                            PopupMenuItem::new("Review Changes").on_click(move |_, _, cx| {
                                 let pr = review.clone();
                                 this3.update(cx, |app, cx| app.browse_pr(pr, true, cx));
-                            },
-                        ))
+                            }),
+                        )
                         .item(PopupMenuItem::new("Check Out").on_click(move |_, _, cx| {
                             this2.update(cx, |app, cx| {
                                 app.target = LogTarget::Head;
@@ -502,9 +550,10 @@ impl GitApp {
                             });
                         }))
                         .separator()
-                        .item(PopupMenuItem::new("Open on GitHub").on_click(move |_, _, _| {
-                            crate::github::open_url(&url)
-                        }))
+                        .item(
+                            PopupMenuItem::new("Open on GitHub")
+                                .on_click(move |_, _, _| crate::github::open_url(&url)),
+                        )
                         .item(PopupMenuItem::new("Copy URL").on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(url2.clone()))
                         }))
@@ -568,17 +617,16 @@ impl GitApp {
                 let head = self.head_name();
                 let this = cx.entity();
                 base(active)
-                    .child(
-                        Icon::new(icon)
-                            .size(px(14.))
-                            .text_color(if b.is_head { t.colors.primary } else { muted }),
-                    )
+                    .child(Icon::new(icon).size(px(14.)).text_color(if b.is_head {
+                        t.colors.primary
+                    } else {
+                        muted
+                    }))
                     .child(label(name, b.is_head))
                     // The checks of the branch's pull request.
-                    .when_some(
-                        pr.and_then(|n| self.pr_checks_icon(n, cx)),
-                        |d, icon| d.child(icon),
-                    )
+                    .when_some(pr.and_then(|n| self.pr_checks_icon(n, cx)), |d, icon| {
+                        d.child(icon)
+                    })
                     .when_some(track, |d, s| {
                         d.child(div().text_size(px(11.)).text_color(muted).child(s))
                     })
@@ -596,14 +644,13 @@ impl GitApp {
                         let (a, b, c) = (menu_branch.clone(), menu_branch.clone(), this.clone());
                         let this2 = this.clone();
                         let copy = menu_branch.name.clone();
-                        let mut menu = menu.item(
-                            PopupMenuItem::new(format!("Browse {}", a.name)).on_click(
+                        let mut menu =
+                            menu.item(PopupMenuItem::new(format!("Browse {}", a.name)).on_click(
                                 move |_, _, cx| {
                                     let r = a.refname.clone();
                                     c.update(cx, |app, cx| app.show_target(LogTarget::Ref(r), cx));
                                 },
-                            ),
-                        );
+                            ));
                         if menu_branch.kind != RefKind::Tag {
                             let (this, r) = (this.clone(), menu_branch.refname.clone());
                             menu = menu.item(PopupMenuItem::new("Review Changes").on_click(
@@ -628,13 +675,14 @@ impl GitApp {
                         }
                         let (this3, from) = (this.clone(), menu_branch.clone());
                         menu = menu.separator().item(
-                            PopupMenuItem::new(format!("New Branch from {}…", from.name))
-                                .on_click(move |_, window, cx| {
+                            PopupMenuItem::new(format!("New Branch from {}…", from.name)).on_click(
+                                move |_, window, cx| {
                                     let start = (from.refname.clone(), from.name.clone());
                                     this3.update(cx, |app, cx| {
                                         app.new_branch_dialog(Some(start), window, cx)
                                     });
-                                }),
+                                },
+                            ),
                         );
                         if menu_branch.kind == RefKind::Local {
                             let (this6, pr_branch) = (this.clone(), menu_branch.name.clone());
@@ -683,11 +731,10 @@ impl GitApp {
                                 },
                             ));
                         }
-                        menu.separator().item(PopupMenuItem::new("Copy Name").on_click(
-                            move |_, _, cx| {
+                        menu.separator()
+                            .item(PopupMenuItem::new("Copy Name").on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                            },
-                        ))
+                            }))
                     })
                     .into_any_element()
             }
@@ -732,7 +779,10 @@ mod tests {
             .collect();
         let all: Vec<usize> = (0..list.len()).collect();
         let (shown, fold) = section_branches(&list, &all, Some("refs/heads/main"), false);
-        assert_eq!(names(&list, &shown), ["main", "dev", "a", "b", "c", "d", "e", "old"]);
+        assert_eq!(
+            names(&list, &shown),
+            ["main", "dev", "a", "b", "c", "d", "e", "old"]
+        );
         assert_eq!(fold, Fold::More(2), "f and g are hidden");
 
         let (shown, fold) = section_branches(&list, &all, Some("refs/heads/main"), true);
@@ -750,15 +800,26 @@ mod tests {
         let all: Vec<usize> = (0..list.len()).collect();
         let (shown, fold) = section_branches(&list, &all, None, false);
         // One branch past the five recent ones: no row to show it.
-        assert_eq!(names(&list, &shown), ["master", "a", "b", "c", "d", "e", "f"]);
+        assert_eq!(
+            names(&list, &shown),
+            ["master", "a", "b", "c", "d", "e", "f"]
+        );
         assert_eq!(fold, Fold::None);
     }
 
     #[test]
     fn remote_branches_count_by_their_name_on_the_remote() {
         let list: Vec<Branch> = [
-            "origin/x1", "origin/x2", "upstream/main", "origin/x3", "origin/x4",
-            "origin/x5", "origin/x6", "origin/x7", "origin/main", "origin/feature/main",
+            "origin/x1",
+            "origin/x2",
+            "upstream/main",
+            "origin/x3",
+            "origin/x4",
+            "origin/x5",
+            "origin/x6",
+            "origin/x7",
+            "origin/main",
+            "origin/feature/main",
         ]
         .iter()
         .map(|n| branch(n, RefKind::Remote, false))
@@ -767,7 +828,15 @@ mod tests {
         let (shown, fold) = section_branches(&list, &all, Some("refs/heads/main"), false);
         assert_eq!(
             names(&list, &shown),
-            ["upstream/main", "origin/main", "origin/x1", "origin/x2", "origin/x3", "origin/x4", "origin/x5"]
+            [
+                "upstream/main",
+                "origin/main",
+                "origin/x1",
+                "origin/x2",
+                "origin/x3",
+                "origin/x4",
+                "origin/x5"
+            ]
         );
         assert_eq!(fold, Fold::More(3));
     }

@@ -149,7 +149,8 @@ impl Workspace {
         let repo = match Repo::discover(&path) {
             Ok(repo) => repo,
             Err(e) => {
-                self.toasts.push((Some(false), format!("{}: {e}", path.display())));
+                self.toasts
+                    .push((Some(false), format!("{}: {e}", path.display())));
                 cx.notify();
                 return;
             }
@@ -327,7 +328,9 @@ impl Workspace {
     /// Toasts of the tabs and of the window.
     fn show_toasts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for (ok, msg) in std::mem::take(&mut self.toasts) {
-            window.defer(cx, move |window, cx| window.push_notification(toast(ok, msg), cx));
+            window.defer(cx, move |window, cx| {
+                window.push_notification(toast(ok, msg), cx)
+            });
         }
     }
 
@@ -369,7 +372,9 @@ impl Workspace {
             .active_app()
             .cloned()
             .map(|app| app.update(cx, |app, cx| app.render_repo_actions(cx).into_any_element()));
-        let tabs: Vec<AnyElement> = (0..self.tabs.len()).map(|ix| self.render_tab(ix, cx)).collect();
+        let tabs: Vec<AnyElement> = (0..self.tabs.len())
+            .map(|ix| self.render_tab(ix, cx))
+            .collect();
         let this = cx.entity();
         TitleBar::new().child(
             h_flex()
@@ -424,13 +429,17 @@ impl Workspace {
             .min_w(px(90.))
             .cursor_pointer()
             .when(dragged, |d| d.invisible())
-            .when(!active, |d| d.child(hover_fill(t.colors.list_hover, px(6.))))
+            .when(!active, |d| {
+                d.child(hover_fill(t.colors.list_hover, px(6.)))
+            })
             .children(tab_label(name, tab.busy, t.colors.muted_foreground))
             .child(
                 div()
                     .flex_none()
                     // Shown on the shown tab, and on the others on hover.
-                    .when(!active, |d| d.invisible().group_hover("tab", |s| s.visible()))
+                    .when(!active, |d| {
+                        d.invisible().group_hover("tab", |s| s.visible())
+                    })
                     .child(
                         Button::new(("tab-close", ix))
                             .ghost()
@@ -478,13 +487,15 @@ impl Workspace {
                 // can move while it is open.
                 let (ws, root) = (menu_ws.clone(), menu_root.clone());
                 let (ws2, root2, dir) = (ws.clone(), root.clone(), root.clone());
-                menu.item(PopupMenuItem::new("Close Tab").on_click(move |_, window, cx| {
-                    ws.update(cx, |ws, cx| {
-                        if let Some(ix) = ws.tab_of(&root) {
-                            ws.close(ix, window, cx)
-                        }
-                    })
-                }))
+                menu.item(
+                    PopupMenuItem::new("Close Tab").on_click(move |_, window, cx| {
+                        ws.update(cx, |ws, cx| {
+                            if let Some(ix) = ws.tab_of(&root) {
+                                ws.close(ix, window, cx)
+                            }
+                        })
+                    }),
+                )
                 .item(
                     PopupMenuItem::new("Close Other Tabs")
                         .disabled(alone)
@@ -497,9 +508,11 @@ impl Workspace {
                         }),
                 )
                 .separator()
-                .item(PopupMenuItem::new("Open in Finder").on_click(move |_, _, _| {
-                    let _ = std::process::Command::new("open").arg(&dir).spawn();
-                }))
+                .item(
+                    PopupMenuItem::new("Open in Finder").on_click(move |_, _, _| {
+                        let _ = std::process::Command::new("open").arg(&dir).spawn();
+                    }),
+                )
             })
             .into_any_element()
     }
@@ -536,9 +549,11 @@ impl Workspace {
                     let this = this.clone();
                     menu = menu
                         .separator()
-                        .item(PopupMenuItem::new("Clear Recent").on_click(move |_, _, cx| {
-                            this.update(cx, |ws, cx| ws.clear_recent(cx));
-                        }))
+                        .item(
+                            PopupMenuItem::new("Clear Recent").on_click(move |_, _, cx| {
+                                this.update(cx, |ws, cx| ws.clear_recent(cx));
+                            }),
+                        )
                         .separator();
                 }
                 menu.menu("Open Repository…", Box::new(OpenRepo))
@@ -613,7 +628,11 @@ impl Workspace {
                                 .rounded(t.radius)
                                 .cursor_pointer()
                                 .child(hover_fill(t.colors.list_hover, t.radius))
-                                .child(Icon::new(IconName::FolderGit2).size(px(14.)).text_color(muted))
+                                .child(
+                                    Icon::new(IconName::FolderGit2)
+                                        .size(px(14.))
+                                        .text_color(muted),
+                                )
                                 .child(
                                     div().font_weight(FontWeight::MEDIUM).child(
                                         p.file_name()
@@ -668,7 +687,12 @@ fn tab_label(name: SharedString, busy: bool, muted: Hsla) -> [AnyElement; 2] {
     };
     [
         icon,
-        div().flex_1().min_w_0().truncate().child(name).into_any_element(),
+        div()
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .child(name)
+            .into_any_element(),
     ]
 }
 
@@ -763,9 +787,9 @@ impl Render for Workspace {
             .key_context("Workspace")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &OpenRepo, window, cx| this.prompt_open(window, cx)))
-            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
-                this.close(this.active, window, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &CloseTab, window, cx| this.close(this.active, window, cx)),
+            )
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(1, window, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, window, cx| this.step(-1, window, cx)))
             .on_action(|_: &OpenSettings, window, cx| settings_ui::open_settings(window, cx))
@@ -813,8 +837,16 @@ mod tests {
         // Tabs 0..4, tab 2 shown.
         assert_eq!(shown_after_close(2, 0, 3), Some(1), "a tab to the left");
         assert_eq!(shown_after_close(2, 3, 3), Some(2), "a tab to the right");
-        assert_eq!(shown_after_close(2, 2, 3), Some(2), "the shown tab: its right neighbour");
-        assert_eq!(shown_after_close(3, 3, 3), Some(2), "the shown last tab: its left neighbour");
+        assert_eq!(
+            shown_after_close(2, 2, 3),
+            Some(2),
+            "the shown tab: its right neighbour"
+        );
+        assert_eq!(
+            shown_after_close(3, 3, 3),
+            Some(2),
+            "the shown last tab: its left neighbour"
+        );
         assert_eq!(shown_after_close(0, 0, 0), None, "the only tab");
     }
 }

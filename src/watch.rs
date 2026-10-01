@@ -47,7 +47,9 @@ pub fn watch(dirs: &Dirs) -> notify::Result<(RepoWatcher, UnboundedReceiver<Chan
     })?;
     watcher.watch(&dirs.root, RecursiveMode::Recursive)?;
     let mut watched = vec![dirs.root.clone()];
-    let extra = [&dirs.git_dir, &dirs.common_dir].into_iter().chain(&dirs.others);
+    let extra = [&dirs.git_dir, &dirs.common_dir]
+        .into_iter()
+        .chain(&dirs.others);
     for dir in extra {
         if watched.iter().any(|w| dir.starts_with(w)) {
             continue;
@@ -101,10 +103,17 @@ impl Filter {
             .filter(|(_, (root, _))| path.starts_with(root))
             .max_by_key(|(_, (root, _))| root.as_os_str().len())?;
         let rel = path.strip_prefix(root).ok()?;
-        if ignore.matched_path_or_any_parents(rel, path.is_dir()).is_ignore() {
+        if ignore
+            .matched_path_or_any_parents(rel, path.is_dir())
+            .is_ignore()
+        {
             return None;
         }
-        Some(if ix == 0 { Change::Files } else { Change::Worktrees })
+        Some(if ix == 0 {
+            Change::Files
+        } else {
+            Change::Worktrees
+        })
     }
 }
 
@@ -147,14 +156,26 @@ mod tests {
     #[test]
     fn git_dir_paths() {
         assert_eq!(git_dir_change(Path::new("HEAD")), Some(Change::Refs));
-        assert_eq!(git_dir_change(Path::new("refs/heads/main")), Some(Change::Refs));
+        assert_eq!(
+            git_dir_change(Path::new("refs/heads/main")),
+            Some(Change::Refs)
+        );
         assert_eq!(git_dir_change(Path::new("index")), Some(Change::Files));
         assert_eq!(git_dir_change(Path::new("index.lock")), None);
         assert_eq!(git_dir_change(Path::new("objects/ab/cdef")), None);
         assert_eq!(git_dir_change(Path::new("logs/HEAD")), None);
-        assert_eq!(git_dir_change(Path::new("worktrees/a/index")), Some(Change::Worktrees));
-        assert_eq!(common_dir_change(Path::new("refs/heads/a")), Some(Change::Refs));
-        assert_eq!(common_dir_change(Path::new("index")), Some(Change::Worktrees));
+        assert_eq!(
+            git_dir_change(Path::new("worktrees/a/index")),
+            Some(Change::Worktrees)
+        );
+        assert_eq!(
+            common_dir_change(Path::new("refs/heads/a")),
+            Some(Change::Refs)
+        );
+        assert_eq!(
+            common_dir_change(Path::new("index")),
+            Some(Change::Worktrees)
+        );
         assert_eq!(common_dir_change(Path::new("logs/HEAD")), None);
     }
 
@@ -168,9 +189,18 @@ mod tests {
             others: vec![PathBuf::from("/r/.agents/one")],
         });
         assert_eq!(main.classify(Path::new("/r/src/a.rs")), Some(Change::Files));
-        assert_eq!(main.classify(Path::new("/r/.agents/one/b.rs")), Some(Change::Worktrees));
-        assert_eq!(main.classify(Path::new("/r/.git/worktrees/one/HEAD")), Some(Change::Worktrees));
-        assert_eq!(main.classify(Path::new("/r/.git/refs/heads/one")), Some(Change::Refs));
+        assert_eq!(
+            main.classify(Path::new("/r/.agents/one/b.rs")),
+            Some(Change::Worktrees)
+        );
+        assert_eq!(
+            main.classify(Path::new("/r/.git/worktrees/one/HEAD")),
+            Some(Change::Worktrees)
+        );
+        assert_eq!(
+            main.classify(Path::new("/r/.git/refs/heads/one")),
+            Some(Change::Refs)
+        );
 
         // The same repository, seen from the agent's worktree.
         let agent = Filter::new(&Dirs {
@@ -179,11 +209,29 @@ mod tests {
             common_dir: PathBuf::from("/r/.git"),
             others: vec![PathBuf::from("/r")],
         });
-        assert_eq!(agent.classify(Path::new("/r/.agents/one/b.rs")), Some(Change::Files));
-        assert_eq!(agent.classify(Path::new("/r/src/a.rs")), Some(Change::Worktrees));
-        assert_eq!(agent.classify(Path::new("/r/.git/worktrees/one/index")), Some(Change::Files));
-        assert_eq!(agent.classify(Path::new("/r/.git/worktrees/one/HEAD")), Some(Change::Refs));
-        assert_eq!(agent.classify(Path::new("/r/.git/refs/heads/one")), Some(Change::Refs));
-        assert_eq!(agent.classify(Path::new("/r/.git/index")), Some(Change::Worktrees));
+        assert_eq!(
+            agent.classify(Path::new("/r/.agents/one/b.rs")),
+            Some(Change::Files)
+        );
+        assert_eq!(
+            agent.classify(Path::new("/r/src/a.rs")),
+            Some(Change::Worktrees)
+        );
+        assert_eq!(
+            agent.classify(Path::new("/r/.git/worktrees/one/index")),
+            Some(Change::Files)
+        );
+        assert_eq!(
+            agent.classify(Path::new("/r/.git/worktrees/one/HEAD")),
+            Some(Change::Refs)
+        );
+        assert_eq!(
+            agent.classify(Path::new("/r/.git/refs/heads/one")),
+            Some(Change::Refs)
+        );
+        assert_eq!(
+            agent.classify(Path::new("/r/.git/index")),
+            Some(Change::Worktrees)
+        );
     }
 }

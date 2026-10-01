@@ -159,16 +159,19 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
             items.push(action("Settings…", IconName::Settings, OpenSettings));
             CommandGroup::new().label("Actions").items(items)
         }
-        Section::Switch(list) => CommandGroup::new().label("Switch to branch").items(
-            list.iter().map(|b| {
-                CommandItem::new()
-                    .label(format!("Switch to {}", b.name))
-                    .keywords([b.name.clone(), "checkout".into()])
-                    .icon(Icon::new(IconName::GitBranch))
-            }),
-        ),
-        Section::Browse(list) => CommandGroup::new().label("Browse branch").items(list.iter().map(
-            |(_, name)| {
+        Section::Switch(list) => {
+            CommandGroup::new()
+                .label("Switch to branch")
+                .items(list.iter().map(|b| {
+                    CommandItem::new()
+                        .label(format!("Switch to {}", b.name))
+                        .keywords([b.name.clone(), "checkout".into()])
+                        .icon(Icon::new(IconName::GitBranch))
+                }))
+        }
+        Section::Browse(list) => CommandGroup::new()
+            .label("Browse branch")
+            .items(list.iter().map(|(_, name)| {
                 CommandItem::new()
                     .label(format!("Browse {name}"))
                     .keywords([name.clone(), "pick".into()])
@@ -177,16 +180,15 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                     } else {
                         IconName::GitBranch
                     }))
-            },
-        )),
-        Section::Review(list) => CommandGroup::new().label("Review branch").items(list.iter().map(
-            |(_, name)| {
+            })),
+        Section::Review(list) => CommandGroup::new()
+            .label("Review branch")
+            .items(list.iter().map(|(_, name)| {
                 CommandItem::new()
                     .label(format!("Review {name}"))
                     .keywords([name.clone(), "diff".into(), "compare".into()])
                     .icon(Icon::new(IconName::GitCompare))
-            },
-        )),
+            })),
         Section::Prs(list) => CommandGroup::new()
             .label("Pull requests")
             .items(list.iter().map(|p| {
@@ -195,17 +197,19 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                     .keywords([p.head.clone(), p.author.clone(), format!("{}", p.number)])
                     .icon(Icon::new(IconName::GitPullRequest))
             })),
-        Section::Repos(list) => CommandGroup::new()
-            .label("Recent repositories")
-            .items(list.iter().map(|p| {
-                let name = p
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                CommandItem::new()
-                    .label(format!("Open {name}"))
-                    .keywords([p.display().to_string()])
-                    .icon(Icon::new(IconName::FolderGit2))
-            })),
+        Section::Repos(list) => {
+            CommandGroup::new()
+                .label("Recent repositories")
+                .items(list.iter().map(|p| {
+                    let name = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    CommandItem::new()
+                        .label(format!("Open {name}"))
+                        .keywords([p.display().to_string()])
+                        .icon(Icon::new(IconName::FolderGit2))
+                }))
+        }
     }
 }

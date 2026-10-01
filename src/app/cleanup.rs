@@ -64,8 +64,18 @@ fn pr_fate(prs: &[ClosedPr], mut fit: impl FnMut(&ClosedPr) -> Fit) -> Option<Fa
     for pr in prs {
         match (fit(pr), pr.merged) {
             (Fit::Apart, _) => {}
-            (Fit::Head | Fit::Inside, true) => return Some(Fate::Merged { pr: pr.clone(), after: 0 }),
-            (Fit::After(after), true) => return Some(Fate::Merged { pr: pr.clone(), after }),
+            (Fit::Head | Fit::Inside, true) => {
+                return Some(Fate::Merged {
+                    pr: pr.clone(),
+                    after: 0,
+                });
+            }
+            (Fit::After(after), true) => {
+                return Some(Fate::Merged {
+                    pr: pr.clone(),
+                    after,
+                });
+            }
             (_, false) => {
                 closed.get_or_insert(pr.number);
             }
@@ -82,7 +92,8 @@ fn fit(repo: &Repo, pr: &ClosedPr, sha: &str) -> Fit {
         return Fit::Head;
     }
     if !git::has_commit(repo, &pr.head_oid) {
-        let inside = github::commit_oids(repo, pr.number).is_ok_and(|oids| oids.iter().any(|o| o == sha));
+        let inside =
+            github::commit_oids(repo, pr.number).is_ok_and(|oids| oids.iter().any(|o| o == sha));
         return if inside { Fit::Inside } else { Fit::Apart };
     }
     if git::is_ancestor(repo, sha, &pr.head_oid) {
@@ -134,7 +145,11 @@ impl CleanupRow {
         CleanupRow {
             name: branch.name.clone(),
             sha: branch.sha.clone(),
-            stale: if merged { Stale::Merged } else { Stale::Gone { closed: None } },
+            stale: if merged {
+                Stale::Merged
+            } else {
+                Stale::Gone { closed: None }
+            },
             lost: merged.then_some(0),
             worktree: worktree.cloned(),
             changed: 0,
@@ -167,7 +182,8 @@ fn check_row(
 ) -> CleanupRow {
     if row.stale != Stale::Merged {
         let fate = prs.and_then(|prs| {
-            let mut own: Vec<ClosedPr> = prs.iter().filter(|p| p.head == row.name).cloned().collect();
+            let mut own: Vec<ClosedPr> =
+                prs.iter().filter(|p| p.head == row.name).cloned().collect();
             if own.is_empty() {
                 own = github::closed(repo, Some(&row.name), 20).unwrap_or_default();
             }
@@ -278,7 +294,9 @@ impl GitApp {
                     .background_executor()
                     .spawn(async move { github::closed(&repo, None, CLOSED_PRS).ok() })
                     .await;
-                let _ = this.update(cx, |this, cx| this.check_rows(gone, prs.map(Arc::new), epoch, cx));
+                let _ = this.update(cx, |this, cx| {
+                    this.check_rows(gone, prs.map(Arc::new), epoch, cx)
+                });
             })
             .detach();
         }
@@ -307,7 +325,14 @@ impl GitApp {
             cx.spawn(async move |this, cx| {
                 let row = cx
                     .background_executor()
-                    .spawn(async move { check_row(&repo, row, base.as_deref(), prs.as_deref().map(Vec::as_slice)) })
+                    .spawn(async move {
+                        check_row(
+                            &repo,
+                            row,
+                            base.as_deref(),
+                            prs.as_deref().map(Vec::as_slice),
+                        )
+                    })
                     .await;
                 let _ = this.update(cx, |this, cx| {
                     if this.cleanup_epoch == epoch
@@ -449,7 +474,10 @@ impl GitApp {
             return;
         }
         let n = rows.len();
-        self.set_busy(Some(format!("Deleting {n} {}…", branches_word(n)).into()), cx);
+        self.set_busy(
+            Some(format!("Deleting {n} {}…", branches_word(n)).into()),
+            cx,
+        );
         cx.notify();
         cx.spawn(async move |this, cx| {
             let results = cx
@@ -457,7 +485,10 @@ impl GitApp {
                 .spawn(async move {
                     // Git keeps the branch of a worktree whose folder is
                     // gone until it forgets that worktree.
-                    if rows.iter().any(|r| r.worktree.as_ref().is_some_and(|w| w.prunable)) {
+                    if rows
+                        .iter()
+                        .any(|r| r.worktree.as_ref().is_some_and(|w| w.prunable))
+                    {
                         let _ = git::prune_worktrees(&repo);
                     }
                     rows.into_iter()
@@ -500,7 +531,11 @@ impl GitApp {
                 };
                 if !failed.is_empty() {
                     let kept = format!("Kept {}", failed.join("; "));
-                    msg = if msg.is_empty() { kept } else { format!("{msg} {kept}") };
+                    msg = if msg.is_empty() {
+                        kept
+                    } else {
+                        format!("{msg} {kept}")
+                    };
                 }
                 this.toast(Some(failed.is_empty()), msg, cx);
                 this.reload(cx);
@@ -519,11 +554,17 @@ fn row_facts(r: &CleanupRow, base: &str, cx: &App) -> impl IntoElement {
     let mut facts: Vec<(String, bool)> = vec![];
     match &r.stale {
         Stale::Merged => facts.push((format!("Merged into {base}"), false)),
-        Stale::PrMerged { number, into: None } => facts.push((format!("Merged as #{number}"), false)),
-        Stale::PrMerged { number, into: Some(into) } => {
-            facts.push((format!("Merged as #{number} into {into}"), false))
+        Stale::PrMerged { number, into: None } => {
+            facts.push((format!("Merged as #{number}"), false))
         }
-        Stale::InBase => facts.push((format!("Remote branch gone, its changes are in {base}"), false)),
+        Stale::PrMerged {
+            number,
+            into: Some(into),
+        } => facts.push((format!("Merged as #{number} into {into}"), false)),
+        Stale::InBase => facts.push((
+            format!("Remote branch gone, its changes are in {base}"),
+            false,
+        )),
         Stale::Gone { closed } => {
             facts.push(("Remote branch gone".to_string(), false));
             if let Some(n) = closed {
@@ -549,7 +590,10 @@ fn row_facts(r: &CleanupRow, base: &str, cx: &App) -> impl IntoElement {
         });
     }
     if r.changed > 0 {
-        facts.push((format!("{} changed file{}", r.changed, history::plural(r.changed)), true));
+        facts.push((
+            format!("{} changed file{}", r.changed, history::plural(r.changed)),
+            true,
+        ));
     }
     let muted = t.colors.muted_foreground;
     let mut line = h_flex().flex_wrap().text_size(px(12.)).text_color(muted);
@@ -621,7 +665,10 @@ fn summary_text(chosen: &[&CleanupRow], base: &str) -> (String, bool) {
     }
     let loses = !lose.is_empty();
     if loses {
-        text.push_str(&format!(" You lose {}. You cannot undo it.", lose.join(" and ")));
+        text.push_str(&format!(
+            " You lose {}. You cannot undo it.",
+            lose.join(" and ")
+        ));
     }
     (text, loses)
 }
@@ -656,18 +703,40 @@ mod tests {
                 _ => Fit::Head,
             }
         });
-        assert_eq!(fate, Some(Fate::Merged { pr: prs[1].clone(), after: 0 }));
+        assert_eq!(
+            fate,
+            Some(Fate::Merged {
+                pr: prs[1].clone(),
+                after: 0
+            })
+        );
         assert_eq!(asked, [3, 2], "it stops at the first merged one");
 
-        let fate = pr_fate(&prs, |p| if p.number == 1 { Fit::After(2) } else { Fit::Apart });
-        assert_eq!(fate, Some(Fate::Merged { pr: prs[2].clone(), after: 2 }));
+        let fate = pr_fate(&prs, |p| {
+            if p.number == 1 {
+                Fit::After(2)
+            } else {
+                Fit::Apart
+            }
+        });
+        assert_eq!(
+            fate,
+            Some(Fate::Merged {
+                pr: prs[2].clone(),
+                after: 2
+            })
+        );
     }
 
     #[test]
     fn a_closed_pull_request_or_none() {
         let prs = [pr(5, true), pr(4, false)];
         let fate = pr_fate(&prs, |p| if p.number == 4 { Fit::Head } else { Fit::Apart });
-        assert_eq!(fate, Some(Fate::Closed(4)), "the merged one has other commits");
+        assert_eq!(
+            fate,
+            Some(Fate::Closed(4)),
+            "the merged one has other commits"
+        );
         assert_eq!(pr_fate(&prs, |_| Fit::Apart), None);
         assert_eq!(pr_fate(&[], |_| Fit::Head), None);
     }
@@ -675,7 +744,10 @@ mod tests {
     #[test]
     fn base_branch_names() {
         assert_eq!(branch_name("refs/heads/dev"), "dev");
-        assert_eq!(branch_name("refs/remotes/origin/release/2.0"), "release/2.0");
+        assert_eq!(
+            branch_name("refs/remotes/origin/release/2.0"),
+            "release/2.0"
+        );
         assert_eq!(branch_name("dev"), "dev");
     }
 
@@ -703,12 +775,18 @@ mod tests {
             is_head: false,
         };
         let merged = CleanupRow::new(&b, true, None);
-        assert!(!merged.checking && merged.selected, "nothing to check, nothing lost");
+        assert!(
+            !merged.checking && merged.selected,
+            "nothing to check, nothing lost"
+        );
         let gone = CleanupRow::new(&b, false, None);
         assert!(gone.checking && !gone.selected);
         assert_eq!(gone.lost, None);
         let with_files = CleanupRow::new(&b, true, Some(&worktree(false)));
-        assert!(with_files.checking && !with_files.selected, "its worktree may have changes");
+        assert!(
+            with_files.checking && !with_files.selected,
+            "its worktree may have changes"
+        );
         let folder_gone = CleanupRow::new(&b, true, Some(&worktree(true)));
         assert!(!folder_gone.checking && folder_gone.selected);
     }
@@ -729,7 +807,10 @@ mod tests {
     #[test]
     fn only_rows_that_lose_nothing_start_selected() {
         assert!(row(Some(0), 0).safe());
-        assert!(!row(Some(2), 0).safe(), "commits that the base does not have");
+        assert!(
+            !row(Some(2), 0).safe(),
+            "commits that the base does not have"
+        );
         assert!(!row(Some(0), 3).safe(), "changes in its worktree");
         assert!(!row(None, 0).safe(), "no base branch to compare with");
     }
@@ -752,6 +833,9 @@ mod tests {
                 true
             )
         );
-        assert_eq!(summary_text(&[], "main").0, "Choose the branches to delete.");
+        assert_eq!(
+            summary_text(&[], "main").0,
+            "Choose the branches to delete."
+        );
     }
 }

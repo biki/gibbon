@@ -48,16 +48,25 @@ impl GitApp {
                 .child(
                     v_flex()
                         .gap_2()
-                        .child(div().text_size(px(12.)).text_color(muted).child(label.clone()))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(muted)
+                                .child(label.clone()),
+                        )
                         .child(Input::new(&field)),
                 )
-                .footer(dialog_footer(ok.clone(), ButtonVariant::Primary, move |_, cx| {
-                    let value = field.read(cx).value().to_string();
-                    this.update(cx, |app, cx| {
-                        app.prompt_sub = None;
-                        on_ok(app, value, cx)
-                    });
-                }))
+                .footer(dialog_footer(
+                    ok.clone(),
+                    ButtonVariant::Primary,
+                    move |_, cx| {
+                        let value = field.read(cx).value().to_string();
+                        this.update(cx, |app, cx| {
+                            app.prompt_sub = None;
+                            on_ok(app, value, cx)
+                        });
+                    },
+                ))
         });
         input.update(cx, |s, cx| s.focus(window, cx));
     }

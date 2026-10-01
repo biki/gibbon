@@ -8,9 +8,19 @@ use gpui_kit::component::menu::ContextMenuExt as _;
 use super::*;
 
 enum Row {
-    Header { staged: bool, count: usize },
-    Dir { staged: bool, dir: files::Dir },
-    File { entry: usize, staged: bool, depth: Option<usize> },
+    Header {
+        staged: bool,
+        count: usize,
+    },
+    Dir {
+        staged: bool,
+        dir: files::Dir,
+    },
+    File {
+        entry: usize,
+        staged: bool,
+        depth: Option<usize>,
+    },
 }
 
 /// The file tree of each side keeps its own closed folders.
@@ -26,7 +36,11 @@ impl GitApp {
             let entries: Vec<usize> = (0..self.status.len())
                 .filter(|&i| {
                     let e = &self.status[i];
-                    if staged { e.staged.is_some() } else { e.unstaged.is_some() }
+                    if staged {
+                        e.staged.is_some()
+                    } else {
+                        e.unstaged.is_some()
+                    }
                 })
                 .collect();
             if entries.is_empty() {
@@ -36,7 +50,10 @@ impl GitApp {
                 staged,
                 count: entries.len(),
             });
-            let paths: Vec<&str> = entries.iter().map(|&i| self.status[i].path.as_str()).collect();
+            let paths: Vec<&str> = entries
+                .iter()
+                .map(|&i| self.status[i].path.as_str())
+                .collect();
             rows.extend(
                 self.file_rows(scope(staged), &paths, cx)
                     .into_iter()
@@ -71,7 +88,11 @@ impl GitApp {
             .child(resizable_panel().child(self.pane(Part::Diff, cx)))
     }
 
-    pub(super) fn render_change_list(&mut self, memo: &mut Memo, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_change_list(
+        &mut self,
+        memo: &mut Memo,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let rows = keep(memo, || self.change_rows(cx));
         let (muted, border) = (cx.theme().colors.muted_foreground, cx.theme().colors.border);
         let n = rows.len();
@@ -118,13 +139,7 @@ impl GitApp {
                             .gap_1p5()
                             .child(Icon::new(IconName::GitCommitHorizontal).size(px(15.)))
                             .child(format!("Commit to {}", self.head_name()))
-                            .child(
-                                div()
-                                    .ml_1()
-                                    .text_size(px(11.))
-                                    .opacity(0.7)
-                                    .child("⌘↵"),
-                            ),
+                            .child(div().ml_1().text_size(px(11.)).opacity(0.7).child("⌘↵")),
                     )
                     .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx))),
             );
@@ -133,7 +148,9 @@ impl GitApp {
             .border_r_1()
             .border_color(border)
             .when(n > 0, |d| d.child(self.render_changes_bar(cx)))
-            .when_some(self.paused, |d, p| d.child(self.render_paused_banner(p, cx)))
+            .when_some(self.paused, |d, p| {
+                d.child(self.render_paused_banner(p, cx))
+            })
             .child(list)
             .child(commit_box)
     }
@@ -179,23 +196,30 @@ impl GitApp {
                 h_flex()
                     .gap_2()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(Icon::new(IconName::GitMergeConflict).size(px(15.)).text_color(t.colors.yellow))
+                    .child(
+                        Icon::new(IconName::GitMergeConflict)
+                            .size(px(15.))
+                            .text_color(t.colors.yellow),
+                    )
                     .child(format!("{} paused", p.name())),
             )
-            .child(div().text_size(px(12.)).text_color(t.colors.muted_foreground).child(
-                if conflicts > 0 {
-                    format!(
-                        "{conflicts} file{} with conflicts. Fix them in your editor, \
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(t.colors.muted_foreground)
+                    .child(if conflicts > 0 {
+                        format!(
+                            "{conflicts} file{} with conflicts. Fix them in your editor, \
                          stage them, then continue.",
-                        history::plural(conflicts)
-                    )
-                } else {
-                    format!(
-                        "All conflicts are staged. Continue to finish the {}.",
-                        p.name().to_lowercase()
-                    )
-                },
-            ))
+                            history::plural(conflicts)
+                        )
+                    } else {
+                        format!(
+                            "All conflicts are staged. Continue to finish the {}.",
+                            p.name().to_lowercase()
+                        )
+                    }),
+            )
             .child(
                 h_flex()
                     .gap_2()
@@ -252,7 +276,9 @@ impl GitApp {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         match *row {
-            Row::Dir { staged, ref dir } => self.dir_row(scope(staged), dir, ("change-dir", ix), cx),
+            Row::Dir { staged, ref dir } => {
+                self.dir_row(scope(staged), dir, ("change-dir", ix), cx)
+            }
             Row::Header { staged, count } => h_flex()
                 .w_full()
                 .h(px(30.))
@@ -273,9 +299,9 @@ impl GitApp {
                             .xsmall()
                             .label("Stash")
                             .tooltip("Stash all changes  ⌥⌘S")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.stash_dialog(window, cx)
-                            })),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.stash_dialog(window, cx)),
+                            ),
                     )
                     .child(
                         Button::new(("discard-all", ix))
@@ -322,8 +348,8 @@ impl GitApp {
                 depth,
             } => {
                 let e = &self.status[entry];
-                let change = if staged { e.staged } else { e.unstaged }
-                    .unwrap_or(git::Change::Modified);
+                let change =
+                    if staged { e.staged } else { e.unstaged }.unwrap_or(git::Change::Modified);
                 let selected = self.change_sel.as_ref() == Some(&(e.path.clone(), staged));
                 let (path, path2) = (e.path.clone(), e.path.clone());
                 let entry_menu = e.clone();
@@ -334,7 +360,11 @@ impl GitApp {
                         Button::new(("stage", ix))
                             .ghost()
                             .xsmall()
-                            .icon(if staged { IconName::Minus } else { IconName::Plus })
+                            .icon(if staged {
+                                IconName::Minus
+                            } else {
+                                IconName::Plus
+                            })
                             .tooltip(if staged { "Unstage" } else { "Stage" })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let paths = vec![path.clone()];

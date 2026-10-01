@@ -163,18 +163,23 @@ impl GitApp {
             .gap_1()
             .text_size(px(12.))
             .when(ui.plan.merges > 0, |d| {
-                d.pt_2().child(div().text_color(t.colors.yellow).child(format!(
-                    "{} merge commit{} in this range will be flattened.",
-                    ui.plan.merges,
-                    history::plural(ui.plan.merges)
-                )))
+                d.pt_2()
+                    .child(div().text_color(t.colors.yellow).child(format!(
+                        "{} merge commit{} in this range will be flattened.",
+                        ui.plan.merges,
+                        history::plural(ui.plan.merges)
+                    )))
             })
             .when(dirty, |d| {
-                d.pt_2().child(div().text_color(muted).child(
-                    "Your uncommitted changes are stashed first and restored after.",
-                ))
+                d.pt_2().child(
+                    div()
+                        .text_color(muted)
+                        .child("Your uncommitted changes are stashed first and restored after."),
+                )
             })
-            .when_some(problem, |d, p| d.pt_2().child(div().text_color(t.colors.red).child(p)));
+            .when_some(problem, |d, p| {
+                d.pt_2().child(div().text_color(t.colors.red).child(p))
+            });
         let rows: Vec<AnyElement> = (0..n).map(|i| self.render_step(i, cx)).collect();
         v_flex()
             .size_full()
@@ -241,7 +246,9 @@ impl GitApp {
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .when(action == RebaseAction::Drop, |d| d.line_through().text_color(muted))
+                .when(action == RebaseAction::Drop, |d| {
+                    d.line_through().text_color(muted)
+                })
                 .when(action == RebaseAction::Fixup, |d| d.text_color(muted))
                 .child(step.subject.clone())
                 .into_any_element(),
@@ -266,7 +273,11 @@ impl GitApp {
                     .text_right()
                     .text_size(px(11.))
                     .text_color(muted)
-                    .child(if joins { "↳".to_string() } else { format!("{}", i + 1) }),
+                    .child(if joins {
+                        "↳".to_string()
+                    } else {
+                        format!("{}", i + 1)
+                    }),
             )
             .child(picker)
             .child(

@@ -40,7 +40,12 @@ pub const UI_FONTS: &[FontChoice] = &[
     choice("manrope", "Manrope", "Manrope", "rounded"),
     choice("dmsans", "DM Sans", "DM Sans", "geometric"),
     choice("figtree", "Figtree", "Figtree", "open"),
-    choice("instrument", "Instrument Sans", "Instrument Sans", "compact"),
+    choice(
+        "instrument",
+        "Instrument Sans",
+        "Instrument Sans",
+        "compact",
+    ),
     choice("inter", "Inter", "Inter", "neutral"),
 ];
 

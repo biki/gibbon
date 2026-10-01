@@ -40,7 +40,12 @@ impl GitApp {
         }
     }
 
-    pub(super) fn render_worktree_row(&self, wi: usize, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_worktree_row(
+        &self,
+        wi: usize,
+        ix: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let t = cx.theme();
         let muted = t.colors.muted_foreground;
         let w = &self.worktrees[wi];
@@ -111,7 +116,13 @@ impl GitApp {
                 )
             })
             .when_some(age, |d, age| {
-                d.child(div().flex_none().text_size(px(11.)).text_color(muted).child(age))
+                d.child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(muted)
+                        .child(age),
+                )
             })
             .tooltip(lines_tooltip(tip))
             .on_mouse_down(
@@ -287,7 +298,11 @@ fn worktree_menu(
     let mut menu = menu;
     if !wt.prunable {
         let (app, path) = (this.clone(), wt.path.clone());
-        let label = if current { "Show Changes" } else { "Open in Tab" };
+        let label = if current {
+            "Show Changes"
+        } else {
+            "Open in Tab"
+        };
         menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
             let path = path.clone();
             app.update(cx, |app, cx| app.open_worktree(path, cx));
@@ -295,23 +310,29 @@ fn worktree_menu(
     }
     if let Some(branch) = wt.branch.clone() {
         let app = this.clone();
-        menu = menu.item(PopupMenuItem::new("Browse Commits").on_click(move |_, _, cx| {
-            let r = branch.clone();
-            app.update(cx, |app, cx| app.show_target(LogTarget::Ref(r), cx));
-        }));
+        menu = menu.item(
+            PopupMenuItem::new("Browse Commits").on_click(move |_, _, cx| {
+                let r = branch.clone();
+                app.update(cx, |app, cx| app.show_target(LogTarget::Ref(r), cx));
+            }),
+        );
     }
     if !wt.prunable && wt.head.is_some() {
         let (app, w) = (this.clone(), wt.clone());
-        menu = menu.item(PopupMenuItem::new("Review Changes").on_click(move |_, _, cx| {
-            app.update(cx, |app, cx| app.start_worktree_review(&w, cx));
-        }));
+        menu = menu.item(
+            PopupMenuItem::new("Review Changes").on_click(move |_, _, cx| {
+                app.update(cx, |app, cx| app.start_worktree_review(&w, cx));
+            }),
+        );
     }
     menu = menu.separator();
     if !wt.prunable {
         let dir = wt.path.clone();
-        menu = menu.item(PopupMenuItem::new("Open in Finder").on_click(move |_, _, _| {
-            let _ = std::process::Command::new("open").arg(&dir).spawn();
-        }));
+        menu = menu.item(
+            PopupMenuItem::new("Open in Finder").on_click(move |_, _, _| {
+                let _ = std::process::Command::new("open").arg(&dir).spawn();
+            }),
+        );
     }
     let copy = wt.path.display().to_string();
     menu = menu
@@ -321,10 +342,14 @@ fn worktree_menu(
         .separator();
     if wt.prunable {
         let (app, w) = (this.clone(), wt.clone());
-        return menu.item(PopupMenuItem::new("Forget…").on_click(move |_, window, cx| {
-            let w = w.clone();
-            app.update(cx, |app, cx| app.remove_worktree_dialog(w, false, window, cx));
-        }));
+        return menu.item(
+            PopupMenuItem::new("Forget…").on_click(move |_, window, cx| {
+                let w = w.clone();
+                app.update(cx, |app, cx| {
+                    app.remove_worktree_dialog(w, false, window, cx)
+                });
+            }),
+        );
     }
     let (app, w) = (this.clone(), wt.clone());
     menu = menu.item(
@@ -332,7 +357,9 @@ fn worktree_menu(
             .disabled(!can_remove)
             .on_click(move |_, window, cx| {
                 let w = w.clone();
-                app.update(cx, |app, cx| app.remove_worktree_dialog(w, false, window, cx));
+                app.update(cx, |app, cx| {
+                    app.remove_worktree_dialog(w, false, window, cx)
+                });
             }),
     );
     if let Some(b) = wt.branch_name() {
@@ -342,7 +369,9 @@ fn worktree_menu(
                 .disabled(!can_remove)
                 .on_click(move |_, window, cx| {
                     let w = w.clone();
-                    app.update(cx, |app, cx| app.remove_worktree_dialog(w, true, window, cx));
+                    app.update(cx, |app, cx| {
+                        app.remove_worktree_dialog(w, true, window, cx)
+                    });
                 }),
         );
     }
