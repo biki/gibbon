@@ -14,6 +14,9 @@ A native Git client for macOS in Rust on GPUI (gpui-kit). See README.md.
 ## Build and test
 
 - `cargo build`, `cargo test`, `cargo clippy` (keep clippy warning-free).
+- `cargo fmt` before each commit (default rustfmt style). The
+  `.githooks/pre-commit` hook rejects staged Rust files that are not
+  formatted.
 - `scripts/bundle.sh` builds `target/release/bundle/Gibbon.app`.
 - `scripts/dev.sh [repo]` is the dev loop (`src/bin/dev.rs`): rebuild and
   restart on save. `cargo run` still starts the app (`default-run`).

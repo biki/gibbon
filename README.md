@@ -274,8 +274,9 @@ keychain has one, and ad hoc otherwise.
 ## Development
 
 ```sh
-git config core.hooksPath .githooks   # checks commit messages
+git config core.hooksPath .githooks   # checks formatting and commit messages
 scripts/dev.sh ~/path/to/repo         # rebuild and restart on every save
+cargo fmt                             # format the code before each commit
 cargo test                            # Git backend, graph, highlighting and watcher tests
 ```
 

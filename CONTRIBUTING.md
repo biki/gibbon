@@ -3,9 +3,19 @@
 ## Setup
 
 ```sh
-git config core.hooksPath .githooks   # once per clone: checks commit messages
+git config core.hooksPath .githooks   # once per clone: checks formatting and commit messages
 cargo test
 ```
+
+## Formatting
+
+The code follows the default rustfmt style, with no `rustfmt.toml`. Run
+`cargo fmt` before you commit. A `pre-commit` hook rejects staged Rust files
+that rustfmt would change.
+
+`.git-blame-ignore-revs` lists the commits that only reformat the code.
+GitHub skips them in its blame view. For `git blame`, run once per clone:
+`git config blame.ignoreRevsFile .git-blame-ignore-revs`.
 
 ## Development loop
 

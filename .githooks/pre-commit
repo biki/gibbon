@@ -1,0 +1,22 @@
+#!/bin/bash
+# Reject commits with staged Rust files that rustfmt would change.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Skip in an emergency:   git commit --no-verify
+#
+# The hook checks the staged content, not the working tree. rustfmt reads
+# each staged file on stdin, where `--check` always succeeds, so the hook
+# compares the output with the input.
+root="$(git rev-parse --show-toplevel)"
+edition="$(sed -n 's/^edition = "\(.*\)"$/\1/p' "$root/Cargo.toml")"
+status=0
+while IFS= read -r -d '' file; do
+    if ! git show ":$file" | rustfmt --edition "$edition" --emit stdout 2>/dev/null |
+        cmp -s - <(git show ":$file"); then
+        echo "Not formatted: $file" >&2
+        status=1
+    fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.rs')
+if [ "$status" -ne 0 ]; then
+    echo "Run cargo fmt, stage the result and commit again." >&2
+fi
+exit "$status"
