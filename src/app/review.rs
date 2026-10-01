@@ -469,11 +469,9 @@ impl GitApp {
                 .into_any_element(),
             Some(_) => {
                 let border = t.colors.border;
-                h_resizable("review-split")
+                split("review-split", false)
                     .child(
-                        resizable_panel()
-                            .size(px(340.))
-                            .size_range(px(220.)..px(700.))
+                        split_panel("review-split", 340., 220.0..700., cx)
                             .child(
                                 div()
                                     .size_full()
