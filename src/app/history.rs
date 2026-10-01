@@ -362,7 +362,32 @@ impl GitApp {
                     .gap_1p5()
                     .overflow_hidden()
                     .when(in_head, |d| d.opacity(0.45))
-                    .children(c.refs.iter().take(4).map(|r| ref_badge(r, cx)))
+                    .children(c.refs.iter().take(4).enumerate().map(|(i, r)| {
+                        let badge = ref_badge(r, cx);
+                        if r.head || r.kind == RefKind::Tag {
+                            return badge.into_any_element();
+                        }
+                        // A double click switches, as in the sidebar. One
+                        // click still selects the commit.
+                        let (label, tip) =
+                            (r.clone(), format!("Double-click to switch to {}", r.name));
+                        badge
+                            .id(("ref", i))
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(tip.clone())
+                                    .build(window, cx)
+                            })
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                    if e.click_count >= 2 {
+                                        cx.stop_propagation();
+                                        this.switch_to_ref(&label, cx);
+                                    }
+                                }),
+                            )
+                            .into_any_element()
+                    }))
                     .when(pick == Some(PickState::AlreadyPicked), |d| {
                         d.child(
                             h_flex()
@@ -501,6 +526,19 @@ impl GitApp {
         self.cursor = Some(ix);
         self.load_detail(cx);
         cx.notify();
+    }
+
+    /// Switch to the branch of a badge in the commit list. A remote branch
+    /// gets a local branch that tracks it, as in the sidebar.
+    fn switch_to_ref(&mut self, label: &git::RefLabel, cx: &mut Context<Self>) {
+        let refname = match label.kind {
+            RefKind::Local => format!("refs/heads/{}", label.name),
+            RefKind::Remote => format!("refs/remotes/{}", label.name),
+            RefKind::Tag => return,
+        };
+        if let Some(b) = self.branches.iter().find(|b| b.refname == refname) {
+            self.switch_branch(b.clone(), cx);
+        }
     }
 
     fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -768,7 +806,7 @@ pub(super) fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
 
-fn ref_badge(r: &git::RefLabel, cx: &App) -> AnyElement {
+fn ref_badge(r: &git::RefLabel, cx: &App) -> Div {
     let t = cx.theme();
     let (fg, bg, icon) = match r.kind {
         RefKind::Local if r.head => (
@@ -800,7 +838,6 @@ fn ref_badge(r: &git::RefLabel, cx: &App) -> AnyElement {
         .font_weight(FontWeight::MEDIUM)
         .child(Icon::new(icon).size(px(11.)))
         .child(div().max_w(px(180.)).truncate().child(r.name.clone()))
-        .into_any_element()
 }
 
 /// A round badge with the author's initials, colored by name.
