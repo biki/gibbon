@@ -322,12 +322,13 @@ impl GitApp {
         };
         let g = self.graph.clone();
         let ring = row_bg;
+        let first = crate::theme::current(cx).lane;
         let graph_cell = canvas(
             |_, _, _| (),
             move |bounds, _, window, _| {
                 if let Some(row) = g.rows.get(ix) {
                     window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                        graph::paint_row(row, bounds, ring, window)
+                        graph::paint_row(row, bounds, ring, first, window)
                     });
                 }
             },

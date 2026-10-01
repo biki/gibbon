@@ -62,12 +62,89 @@ pub struct Syntax {
     pub attribute: u32,
 }
 
-// The colors of gibbons: the black fur of a siamang for the dark grounds,
-// the cream face ring of a lar gibbon for text, and the gold of a female
-// golden-cheeked gibbon for the accent. The grays lean warm to match. Light
-// mode darkens the gold so text in it stays readable on white.
+/// Colors to choose from in Settings, for both appearances.
+pub struct Scheme {
+    /// Stored in the settings.
+    pub id: &'static str,
+    /// Shown in Settings.
+    pub name: &'static str,
+    pub note: &'static str,
+    pub dark: Palette,
+    pub light: Palette,
+    /// The color of `graph::COLORS` that the first lane takes, the one
+    /// nearest to the accent.
+    pub lane: usize,
+}
 
-pub const DARK: Palette = Palette {
+pub const SCHEMES: &[Scheme] = &[
+    Scheme {
+        id: "gibbon",
+        name: "Gibbon",
+        note: "golden fur",
+        dark: GIBBON_DARK,
+        light: GIBBON_LIGHT,
+        lane: 0,
+    },
+    Scheme {
+        id: "indigo",
+        name: "Indigo",
+        note: "cool blue",
+        dark: INDIGO_DARK,
+        light: INDIGO_LIGHT,
+        lane: 2,
+    },
+    Scheme {
+        id: "canopy",
+        name: "Canopy",
+        note: "leaf green",
+        dark: CANOPY_DARK,
+        light: CANOPY_LIGHT,
+        lane: 6,
+    },
+    Scheme {
+        id: "lagoon",
+        name: "Lagoon",
+        note: "deep teal",
+        dark: LAGOON_DARK,
+        light: LAGOON_LIGHT,
+        lane: 1,
+    },
+    Scheme {
+        id: "orchid",
+        name: "Orchid",
+        note: "soft violet",
+        dark: ORCHID_DARK,
+        light: ORCHID_LIGHT,
+        lane: 5,
+    },
+];
+
+pub const DEFAULT: &str = "gibbon";
+
+pub fn scheme(id: &str) -> &'static Scheme {
+    SCHEMES
+        .iter()
+        .find(|s| s.id == id)
+        .or_else(|| SCHEMES.iter().find(|s| s.id == DEFAULT))
+        .expect("default scheme")
+}
+
+/// The scheme from the settings.
+pub fn current(cx: &App) -> &'static Scheme {
+    scheme(&crate::settings::get(cx).theme)
+}
+
+// Gibbon, the default, takes the colors of gibbons: the black fur of a
+// siamang for the dark grounds, the cream face ring of a lar gibbon for
+// text, and the gold of a female golden-cheeked gibbon for the accent. The
+// grays lean warm to match. Light mode darkens the gold so text in it stays
+// readable on white.
+//
+// The other schemes keep the luminance of each Gibbon color and change only
+// the hue, so every scheme has the contrast of Gibbon. They take the status
+// and code colors of Gibbon.
+
+const GIBBON_DARK: Palette = Palette {
     light: false,
     bg: 0x171512,
     sidebar: 0x0F0E0C,
@@ -101,7 +178,7 @@ pub const DARK: Palette = Palette {
     },
 };
 
-pub const LIGHT: Palette = Palette {
+const GIBBON_LIGHT: Palette = Palette {
     light: true,
     bg: 0xFFFFFF,
     sidebar: 0xF5F0E7,
@@ -135,16 +212,186 @@ pub const LIGHT: Palette = Palette {
     },
 };
 
+const INDIGO_DARK: Palette = Palette {
+    bg: 0x141519,
+    sidebar: 0x0D0E10,
+    elevated: 0x1E1F24,
+    border: 0x2F3137,
+    input: 0x42444E,
+    hover: 0xF0F2FF17,
+    highlight: 0xF0F2FF2E,
+    selection: 0x313650,
+    fg: 0xEBEDF7,
+    muted_fg: 0x9A9DAC,
+    accent: 0xA9B7FE,
+    accent_fg: 0x111322,
+    syntax: Syntax {
+        comment: 0x737582,
+        punct: 0x9396A1,
+        ..GIBBON_DARK.syntax
+    },
+    ..GIBBON_DARK
+};
+
+const INDIGO_LIGHT: Palette = Palette {
+    bg: 0xFFFFFF,
+    sidebar: 0xEEF0FA,
+    elevated: 0xFFFFFF,
+    border: 0xD2D5E4,
+    input: 0xB6BBCC,
+    hover: 0x40476B17,
+    highlight: 0x40476B1C,
+    selection: 0xD8DFFF,
+    fg: 0x191B21,
+    muted_fg: 0x5F6271,
+    accent: 0x5B68B6,
+    accent_fg: 0xFFFFFF,
+    syntax: Syntax {
+        comment: 0x787C8B,
+        punct: 0x5B5D6A,
+        ..GIBBON_LIGHT.syntax
+    },
+    ..GIBBON_LIGHT
+};
+
+const CANOPY_DARK: Palette = Palette {
+    bg: 0x141512,
+    sidebar: 0x0D0F0D,
+    elevated: 0x1E201C,
+    border: 0x2E322B,
+    input: 0x42473E,
+    hover: 0xEBF7E117,
+    highlight: 0xEBF7E12E,
+    selection: 0x2F3C22,
+    fg: 0xEAEFE6,
+    muted_fg: 0x99A093,
+    accent: 0x98CA5F,
+    accent_fg: 0x0F1708,
+    syntax: Syntax {
+        comment: 0x72786D,
+        punct: 0x91988C,
+        ..GIBBON_DARK.syntax
+    },
+    ..GIBBON_DARK
+};
+
+const CANOPY_LIGHT: Palette = Palette {
+    bg: 0xFFFFFF,
+    sidebar: 0xEEF2E9,
+    elevated: 0xFFFFFF,
+    border: 0xD1D8CB,
+    input: 0xB5BEAE,
+    hover: 0x3D4E2B17,
+    highlight: 0x3D4E2B1C,
+    selection: 0xCEE9B5,
+    fg: 0x181B15,
+    muted_fg: 0x5E6658,
+    accent: 0x537921,
+    accent_fg: 0xFFFFFF,
+    syntax: Syntax {
+        comment: 0x777F70,
+        punct: 0x5A6055,
+        ..GIBBON_LIGHT.syntax
+    },
+    ..GIBBON_LIGHT
+};
+
+const LAGOON_DARK: Palette = Palette {
+    bg: 0x121616,
+    sidebar: 0x0C0F0E,
+    elevated: 0x1B2020,
+    border: 0x293232,
+    input: 0x3C4846,
+    hover: 0xDBF9F617,
+    highlight: 0xDBF9F62E,
+    selection: 0x143D3B,
+    fg: 0xE4F0EF,
+    muted_fg: 0x8FA2A1,
+    accent: 0x04D1C9,
+    accent_fg: 0x021816,
+    syntax: Syntax {
+        comment: 0x697978,
+        punct: 0x899998,
+        ..GIBBON_DARK.syntax
+    },
+    ..GIBBON_DARK
+};
+
+const LAGOON_LIGHT: Palette = Palette {
+    bg: 0xFFFFFF,
+    sidebar: 0xE7F3F2,
+    elevated: 0xFFFFFF,
+    border: 0xC7DAD8,
+    input: 0xA9BFBD,
+    hover: 0x14514E17,
+    highlight: 0x14514E1C,
+    selection: 0xA2EDE8,
+    fg: 0x141C1C,
+    muted_fg: 0x546765,
+    accent: 0x017A76,
+    accent_fg: 0xFFFFFF,
+    syntax: Syntax {
+        comment: 0x6D807F,
+        punct: 0x516160,
+        ..GIBBON_LIGHT.syntax
+    },
+    ..GIBBON_LIGHT
+};
+
+const ORCHID_DARK: Palette = Palette {
+    bg: 0x171517,
+    sidebar: 0x0F0D0F,
+    elevated: 0x221E23,
+    border: 0x343036,
+    input: 0x49434A,
+    hover: 0xFBEFFF17,
+    highlight: 0xFBEFFF2E,
+    selection: 0x433249,
+    fg: 0xF2ECF4,
+    muted_fg: 0xA49BA8,
+    accent: 0xE7A1FD,
+    accent_fg: 0x1B111E,
+    syntax: Syntax {
+        comment: 0x7C737E,
+        punct: 0x9B939E,
+        ..GIBBON_DARK.syntax
+    },
+    ..GIBBON_DARK
+};
+
+const ORCHID_LIGHT: Palette = Palette {
+    bg: 0xFFFFFF,
+    sidebar: 0xF5EEF7,
+    elevated: 0xFFFFFF,
+    border: 0xDCD3DF,
+    input: 0xC3B8C7,
+    hover: 0x59406117,
+    highlight: 0x5940611C,
+    selection: 0xF5D6FE,
+    fg: 0x1E191F,
+    muted_fg: 0x6A606D,
+    accent: 0x8F59A0,
+    accent_fg: 0xFFFFFF,
+    syntax: Syntax {
+        comment: 0x837987,
+        punct: 0x645B66,
+        ..GIBBON_LIGHT.syntax
+    },
+    ..GIBBON_LIGHT
+};
+
 pub fn palette(cx: &App) -> &'static Palette {
     use crate::settings::Appearance;
-    match crate::settings::get(cx).appearance {
-        Appearance::Light => &LIGHT,
-        Appearance::Dark => &DARK,
-        Appearance::System => match cx.window_appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => &LIGHT,
-            WindowAppearance::Dark | WindowAppearance::VibrantDark => &DARK,
-        },
-    }
+    let scheme = current(cx);
+    let light = match crate::settings::get(cx).appearance {
+        Appearance::Light => true,
+        Appearance::Dark => false,
+        Appearance::System => matches!(
+            cx.window_appearance(),
+            WindowAppearance::Light | WindowAppearance::VibrantLight
+        ),
+    };
+    if light { &scheme.light } else { &scheme.dark }
 }
 
 fn hex(c: u32) -> String {
@@ -305,4 +552,59 @@ pub fn apply(cx: &mut App) {
         theme.notification.margins.right = px(12.);
     }
     Theme::sync_base(cx);
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: the GPUI glob would shadow the built-in #[test].
+    use super::{DEFAULT, Palette, SCHEMES};
+
+    fn luminance(c: u32) -> f64 {
+        let channel = |shift: u32| {
+            let v = ((c >> shift) & 0xFF) as f64 / 255.;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+
+    /// The WCAG contrast ratio of two `0xRRGGBB` colors.
+    fn contrast(a: u32, b: u32) -> f64 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn scheme_ids_are_unique_and_include_the_default() {
+        for (i, s) in SCHEMES.iter().enumerate() {
+            assert!(SCHEMES[..i].iter().all(|o| o.id != s.id), "{}", s.id);
+        }
+        assert!(SCHEMES.iter().any(|s| s.id == DEFAULT));
+    }
+
+    #[test]
+    fn every_scheme_keeps_the_contrast() {
+        let check = |name: &str, p: &Palette| {
+            let pairs = [
+                ("fg on bg", p.fg, p.bg, 12.),
+                ("fg on sidebar", p.fg, p.sidebar, 12.),
+                ("fg on selection", p.fg, p.selection, 7.),
+                ("muted on bg", p.muted_fg, p.bg, 4.5),
+                ("muted on sidebar", p.muted_fg, p.sidebar, 4.5),
+                ("accent on bg", p.accent, p.bg, 4.5),
+                ("text on accent", p.accent_fg, p.accent, 4.5),
+            ];
+            for (what, a, b, min) in pairs {
+                let ratio = contrast(a, b);
+                assert!(ratio >= min, "{name}: {what} is {ratio:.2}, below {min}");
+            }
+        };
+        for s in SCHEMES {
+            check(&format!("{} dark", s.id), &s.dark);
+            check(&format!("{} light", s.id), &s.light);
+        }
+    }
 }

@@ -20,6 +20,8 @@ pub enum Appearance {
 #[serde(default)]
 pub struct Settings {
     pub appearance: Appearance,
+    /// Theme colors, an id from `theme::SCHEMES`.
+    pub theme: String,
     /// Interface text size in pixels.
     pub ui_size: f32,
     /// Diff text size in pixels.
@@ -45,6 +47,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             appearance: Appearance::System,
+            theme: crate::theme::DEFAULT.into(),
             ui_size: 13.,
             code_size: 12.,
             split_diff: false,

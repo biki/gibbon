@@ -143,8 +143,15 @@ pub fn lane_color(i: usize) -> Hsla {
     rgb(COLORS[i % COLORS.len()]).into()
 }
 
-/// Paint one row. `bg` rings the node so lines stop short of it.
-pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut Window) {
+/// Paint one row. `bg` rings the node so lines stop short of it. Lane color
+/// 0 is `COLORS[first]`: the theme starts with the color nearest its accent.
+pub fn paint_row(
+    row: &GraphRow,
+    bounds: Bounds<Pixels>,
+    bg: Hsla,
+    first: usize,
+    window: &mut Window,
+) {
     let h = f32::from(bounds.size.height);
     let x0 = f32::from(bounds.origin.x);
     let y0 = f32::from(bounds.origin.y);
@@ -173,7 +180,7 @@ pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut 
                 point(px(from.0 - LINE_W / 2.), px(from.1)),
                 size(px(LINE_W), px(to.1 - from.1)),
             );
-            window.paint_quad(fill(bounds, lane_color(color)));
+            window.paint_quad(fill(bounds, lane_color(first + color)));
             continue;
         }
         // An S-curve that leaves and enters vertically.
@@ -186,7 +193,7 @@ pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut 
             point(px(to.0), px(my)),
         );
         if let Ok(path) = b.build() {
-            window.paint_path(path, lane_color(color));
+            window.paint_path(path, lane_color(first + color));
         }
     }
 
@@ -207,7 +214,7 @@ pub fn paint_row(row: &GraphRow, bounds: Bounds<Pixels>, bg: Hsla, window: &mut 
         .corner_radii(px(r + ring)),
     );
     let node = Bounds::new(point(px(cx - r), px(cy - r)), size(px(2. * r), px(2. * r)));
-    let color = lane_color(row.color);
+    let color = lane_color(first + row.color);
     if row.merge {
         window.paint_quad(quad(node, px(r), bg, px(LINE_W), color, BorderStyle::Solid));
     } else {

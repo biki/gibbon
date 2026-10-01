@@ -192,6 +192,8 @@ worktrees, in one step.
 Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
 
 - Light and dark themes, or follow macOS.
+- Five color themes with the same contrast: Gibbon (gold, the default),
+  Indigo, Canopy, Lagoon and Orchid.
 - Eight interface fonts: SF Pro, Geist, IBM Plex Sans, Manrope, DM Sans,
   Figtree, Instrument Sans and Inter.
 - Eight code fonts: SF Mono, Geist Mono, IBM Plex Mono, Fira Code,

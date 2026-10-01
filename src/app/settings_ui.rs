@@ -2,6 +2,7 @@
 
 use crate::fonts::{self, FontChoice};
 use crate::settings::{self, Appearance};
+use crate::theme::{self, Palette};
 
 use super::*;
 
@@ -60,14 +61,14 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
         );
         let ui_font = fonts::ui(&s.ui_font);
         let code_font = fonts::code(&s.code_font);
-        let section = |label: &'static str, grid: AnyElement, preview: AnyElement| {
+        let section = |label: &'static str, grid: AnyElement, preview: Option<AnyElement>| {
             v_flex()
                 .w_full()
                 .py_2()
                 .gap_2()
                 .child(div().font_weight(FontWeight::MEDIUM).child(label))
                 .child(grid)
-                .child(preview)
+                .children(preview)
         };
         let preview = |family: &'static str, size: f32, text: &'static str| {
             div()
@@ -89,22 +90,27 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
                     appearance.into_any_element(),
                 ))
                 .child(section(
+                    "Theme",
+                    scheme_grid(theme::current(cx).id, theme::palette(cx).light, cx),
+                    None,
+                ))
+                .child(section(
                     "Interface font",
                     font_grid("ui-font", fonts::UI_FONTS, ui_font.id, false, cx),
-                    preview(
+                    Some(preview(
                         ui_font.family,
                         s.ui_size,
                         "Browsing feature/login · you stay on main · 3 commits to pick",
-                    ),
+                    )),
                 ))
                 .child(section(
                     "Code font",
                     font_grid("code-font", fonts::CODE_FONTS, code_font.id, true, cx),
-                    preview(
+                    Some(preview(
                         code_font.family,
                         s.code_size,
                         ".unwrap_or(3000); // Il1| O0 {} => != <=",
-                    ),
+                    )),
                 ))
                 .child(row(
                     "Interface text",
@@ -121,6 +127,82 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
     });
 }
 
+/// The frame of a choice in a grid: outlined in the accent while `selected`,
+/// highlighted on hover.
+fn card(id: (&'static str, usize), selected: bool, cx: &App) -> Stateful<Div> {
+    let t = cx.theme();
+    div()
+        .id(id)
+        .min_w_0()
+        .px_2()
+        .py_1p5()
+        .rounded(px(7.))
+        .border_1()
+        .cursor_pointer()
+        .border_color(if selected {
+            t.colors.primary
+        } else {
+            t.colors.border
+        })
+        .when(selected, |d| d.bg(t.colors.primary.opacity(0.14)))
+        .when(!selected, |d| {
+            d.child(hover_fill(t.colors.list_hover, px(6.)))
+        })
+}
+
+/// A card for each scheme: a small window in its colors for the current
+/// appearance, its name and its note.
+fn scheme_grid(current: &'static str, light: bool, cx: &App) -> AnyElement {
+    let muted = cx.theme().colors.muted_foreground;
+    div()
+        .grid()
+        .grid_cols(5)
+        .gap(px(6.))
+        .children(theme::SCHEMES.iter().enumerate().map(|(i, s)| {
+            card(("scheme", i), s.id == current, cx)
+                .child(scheme_preview(if light { &s.light } else { &s.dark }))
+                .child(div().text_size(px(13.)).truncate().child(s.name))
+                .child(div().text_size(px(10.5)).text_color(muted).child(s.note))
+                .on_click(move |_, _, cx| settings::update(cx, |set| set.theme = s.id.to_string()))
+        }))
+        .into_any_element()
+}
+
+/// A sidebar, then a pane with an accent pill and a selected row.
+fn scheme_preview(p: &Palette) -> impl IntoElement {
+    h_flex()
+        .h(px(24.))
+        .mb_1()
+        .rounded(px(5.))
+        .border_1()
+        .border_color(rgb(p.border))
+        .child(
+            div()
+                .w(px(16.))
+                .h_full()
+                .rounded_l(px(4.))
+                .bg(rgb(p.sidebar)),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .h_full()
+                .px_1()
+                .gap(px(3.))
+                .justify_center()
+                .rounded_r(px(4.))
+                .bg(rgb(p.bg))
+                .child(div().w(px(18.)).h(px(5.)).rounded(px(2.)).bg(rgb(p.accent)))
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(5.))
+                        .rounded(px(2.))
+                        .bg(rgb(p.selection)),
+                ),
+        )
+}
+
 /// Four columns of font cards; each name is set in its own font.
 fn font_grid(
     id: &'static str,
@@ -135,24 +217,7 @@ fn font_grid(
         .grid_cols(4)
         .gap(px(6.))
         .children(list.iter().enumerate().map(|(i, f)| {
-            let selected = f.id == current;
-            div()
-                .id((id, i))
-                .min_w_0()
-                .px_2()
-                .py_1p5()
-                .rounded(px(7.))
-                .border_1()
-                .cursor_pointer()
-                .border_color(if selected {
-                    t.colors.primary
-                } else {
-                    t.colors.border
-                })
-                .when(selected, |d| d.bg(t.colors.primary.opacity(0.14)))
-                .when(!selected, |d| {
-                    d.child(hover_fill(t.colors.list_hover, px(6.)))
-                })
+            card((id, i), f.id == current, cx)
                 .child(
                     div()
                         .font_family(f.family)
