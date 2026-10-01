@@ -659,12 +659,15 @@ fn tab_frame(filled: bool, cx: &App) -> Div {
 /// A tab's icon and name. A spinner is the icon while a git operation runs.
 fn tab_label(name: SharedString, busy: bool, muted: Hsla) -> [AnyElement; 2] {
     let icon = if busy {
-        IconName::LoaderCircle
+        busy_spinner(muted).into_any_element()
     } else {
-        IconName::FolderGit2
+        Icon::new(IconName::FolderGit2)
+            .size(px(13.))
+            .text_color(muted)
+            .into_any_element()
     };
     [
-        Icon::new(icon).size(px(13.)).text_color(muted).into_any_element(),
+        icon,
         div().flex_1().min_w_0().truncate().child(name).into_any_element(),
     ]
 }

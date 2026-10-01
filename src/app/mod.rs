@@ -11,6 +11,7 @@ use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::theme::ActiveTheme as _;
 use gpui_kit::component::{
     Disableable as _, Icon, ResizablePanel, ResizablePanelGroup, Sizable as _, TitleBar, h_flex,
@@ -1535,7 +1536,7 @@ impl GitApp {
                         .mr_2()
                         .text_size(px(12.))
                         .text_color(muted)
-                        .child(Icon::new(IconName::LoaderCircle).size(px(13.)).text_color(muted))
+                        .child(busy_spinner(muted))
                         .child(b),
                 )
             })
@@ -1791,6 +1792,15 @@ pub(super) fn segmented<L: Into<Segment> + Copy, T: Copy + PartialEq + 'static>(
                 })
                 .on_click(move |_, window, cx| cb(value, window, cx))
         }))
+}
+
+/// The turning circle that shows a git operation runs. It stands still when
+/// macOS reduces motion.
+fn busy_spinner(color: Hsla) -> Spinner {
+    Spinner::new()
+        .icon(Icon::new(IconName::LoaderCircle))
+        .with_size(px(13.))
+        .color(color)
 }
 
 /// A split of the tab that remembers the size of its first panel: a drag
