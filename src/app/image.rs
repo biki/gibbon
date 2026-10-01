@@ -47,16 +47,17 @@ pub(super) fn picture(file: &FileDiff, cx: &App) -> Option<ImageFormat> {
     format(&file.path).filter(|_| file.binary && file.blob_ids() != (None, None))
 }
 
-/// Where one side of an image file comes from.
+/// Where one side of a file comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Source {
+pub(super) enum Source {
     Blob(String),
     /// A file of a worktree, with the id that Git gives its content: when
     /// the file changes, its id changes too.
     File(PathBuf, String),
 }
 
-type Sources = (Option<Source>, Option<Source>);
+/// The old side and the new side. None for a side that does not exist.
+pub(super) type Sources = (Option<Source>, Option<Source>);
 
 /// One side of an image file, loaded.
 enum Side {
@@ -117,7 +118,7 @@ impl GitApp {
         ctx: DiffCtx,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let sources = self.image_sources(file, ctx);
+        let sources = self.side_sources(file, ctx);
         if self.image.sources.as_ref() != Some(&sources) {
             self.load_image(sources, format, cx);
         }
@@ -145,7 +146,7 @@ impl GitApp {
 
     /// Where the sides of `file` come from. Git does not store the new side
     /// of a diff against a worktree: that side is the file on disk.
-    fn image_sources(&self, file: &FileDiff, ctx: DiffCtx) -> Sources {
+    pub(super) fn side_sources(&self, file: &FileDiff, ctx: DiffCtx) -> Sources {
         let worktree = match self.view {
             View::Changes if ctx == DiffCtx::Unstaged => self.repo.as_ref().map(|r| r.root.clone()),
             View::Review => self.review.as_ref().and_then(|r| r.worktree.clone()),
@@ -187,6 +188,22 @@ impl GitApp {
     }
 }
 
+/// The size of one side of a file, in bytes.
+pub(super) fn source_size(repo: &Repo, source: &Source) -> anyhow::Result<u64> {
+    Ok(match source {
+        Source::Blob(id) => git::blob_size(repo, id)?,
+        Source::File(path, _) => std::fs::metadata(path)?.len(),
+    })
+}
+
+/// The content of one side of a file.
+pub(super) fn source_bytes(repo: &Repo, source: &Source) -> anyhow::Result<Vec<u8>> {
+    Ok(match source {
+        Source::Blob(id) => git::blob(repo, id)?,
+        Source::File(path, _) => std::fs::read(path)?,
+    })
+}
+
 fn load_side(repo: &Repo, source: &Source, format: ImageFormat, svg: &SvgRenderer) -> Side {
     read_side(repo, source, format, svg)
         .unwrap_or_else(|e| Side::Note(format!("Could not show the image: {e}")))
@@ -198,18 +215,12 @@ fn read_side(
     format: ImageFormat,
     svg: &SvgRenderer,
 ) -> anyhow::Result<Side> {
-    let size = match source {
-        Source::Blob(id) => git::blob_size(repo, id)?,
-        Source::File(path, _) => std::fs::metadata(path)?.len(),
-    };
+    let size = source_size(repo, source)?;
     if size > MAX_BYTES {
         let text = format!("The file is too large to show ({}).", byte_size(size));
         return Ok(Side::Note(text));
     }
-    let bytes = match source {
-        Source::Blob(id) => git::blob(repo, id)?,
-        Source::File(path, _) => std::fs::read(path)?,
-    };
+    let bytes = source_bytes(repo, source)?;
     let size = bytes.len() as u64;
     let image = Image::from_bytes(format, bytes).to_image_data(svg.clone())?;
     let pixels = image.size(0);
@@ -370,7 +381,7 @@ fn fitted(bounds: Bounds<Pixels>, width: f32, height: f32) -> Option<Bounds<Pixe
 }
 
 /// A file size as Finder shows it, where 1 KB is 1,000 bytes.
-fn byte_size(n: u64) -> String {
+pub(super) fn byte_size(n: u64) -> String {
     match n {
         0..1_000 => format!("{n} byte{}", history::plural(n as usize)),
         1_000..1_000_000 => format!("{:.1} KB", n as f64 / 1e3),
