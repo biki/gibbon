@@ -234,6 +234,8 @@ pub struct GitApp {
     busy: Option<SharedString>,
     log_scroll: UniformListScrollHandle,
     side_scroll: UniformListScrollHandle,
+    /// The scroll state of each diff view, by its list id.
+    diff_scroll: HashMap<&'static str, diff::DiffScroll>,
     /// A restored selection, applied when the log or the commit loads.
     pending_commit: Option<String>,
     pending_file: Option<usize>,
@@ -341,6 +343,7 @@ impl GitApp {
             busy: None,
             log_scroll: UniformListScrollHandle::new(),
             side_scroll: UniformListScrollHandle::new(),
+            diff_scroll: HashMap::new(),
             pending_commit: None,
             pending_file: None,
             check_inspector: false,

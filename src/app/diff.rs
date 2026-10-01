@@ -1,8 +1,11 @@
 //! Diff view: unified or split, with syntax colors, changed words, and —
 //! for working-tree files — hunk buttons and line selection.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
+
+use gpui_kit::component::scroll::{Scrollbar, ScrollbarHandle, ScrollbarMode};
 
 use crate::git::{DiffLine, FileChange, LineKind, PatchOp};
 use crate::highlight::DiffStyles;
@@ -18,6 +21,11 @@ fn metrics(cx: &App) -> (f32, f32) {
 }
 /// Longer lines are cut for display (minified files).
 const MAX_COLS: usize = 1200;
+/// Widths of a line number in the unified and in the split view, and of the
+/// +/− sign before the code.
+const NUM_W: f32 = 44.;
+const SPLIT_NUM_W: f32 = 48.;
+const SIGN_W: f32 = 18.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiffMode {
@@ -98,6 +106,155 @@ fn split_rows(file: &FileDiff) -> Vec<SplitRow> {
     rows
 }
 
+/// What the diff view derives from its file. The pane keeps it.
+struct DiffLayout {
+    /// The rows of the split view, empty in the unified view.
+    rows: Vec<SplitRow>,
+    /// Characters in the longest line that `code` shows.
+    cols: usize,
+}
+
+impl DiffLayout {
+    fn new(file: &FileDiff, mode: DiffMode) -> Self {
+        DiffLayout {
+            rows: match mode {
+                DiffMode::Split => split_rows(file),
+                DiffMode::Unified => Vec::new(),
+            },
+            cols: file
+                .lines
+                .iter()
+                .filter(|l| l.kind != LineKind::Hunk)
+                .map(|l| shown(&l.text).chars().count())
+                .max()
+                .unwrap_or(0),
+        }
+    }
+}
+
+/// The scroll state of a diff view. The list scrolls the rows up and down.
+/// The code scrolls sideways by `x` under fixed line numbers, so both sides
+/// of the split view scroll together.
+#[derive(Clone, Default)]
+pub(super) struct DiffScroll(Rc<ScrollState>);
+
+#[derive(Default)]
+struct ScrollState {
+    list: UniformListScrollHandle,
+    /// Can be more than the maximum after the view gets wider: read it with
+    /// `x()`.
+    x: Cell<Pixels>,
+    /// Width of the longest line's text.
+    text_w: Cell<Pixels>,
+    /// Height of all rows.
+    rows_h: Cell<Pixels>,
+    split: Cell<bool>,
+    /// The list has room below the rows for the horizontal scrollbar.
+    room_below: Cell<bool>,
+    /// The path of the shown file: another file starts at the left.
+    path: RefCell<String>,
+    /// The axis of the current scroll gesture, locked as the list locks it.
+    gesture: RefCell<OngoingScroll>,
+}
+
+impl DiffScroll {
+    fn set_file(&self, path: &str, text_w: Pixels, rows_h: Pixels, split: bool) {
+        let s = &self.0;
+        if *s.path.borrow() != path {
+            *s.path.borrow_mut() = path.to_string();
+            s.x.set(px(0.));
+        }
+        s.text_w.set(text_w);
+        s.rows_h.set(rows_h);
+        s.split.set(split);
+    }
+
+    /// Width of one code column, beside the line numbers.
+    fn code_w(&self, view_w: Pixels) -> Pixels {
+        if self.0.split.get() {
+            (view_w - px(1.)) / 2. - px(SPLIT_NUM_W + SIGN_W)
+        } else {
+            view_w - px(2. * NUM_W + SIGN_W)
+        }
+    }
+
+    /// Whether the view needs its vertical and its horizontal scrollbar.
+    /// Each takes room from the content, so each can make the other needed.
+    fn bars(&self) -> (bool, bool) {
+        let s = &self.0;
+        let view = s.list.viewport_bounds().size;
+        let bar = Scrollbar::width();
+        let (text, rows) = (s.text_w.get(), s.rows_h.get());
+        let mut vertical = rows > view.height;
+        let end = if vertical { bar } else { px(0.) };
+        let horizontal = text + end > self.code_w(view.width);
+        if horizontal {
+            vertical = vertical || rows + bar > view.height;
+        }
+        (vertical, horizontal)
+    }
+
+    /// The room below the rows comes from the size of the last frame. If
+    /// the view changed size, render again with the right room.
+    fn check_room(&self, window: &Window) {
+        if self.bars().1 != self.0.room_below.get() {
+            window.request_animation_frame();
+        }
+    }
+
+    fn max_x(&self) -> Pixels {
+        let s = &self.0;
+        let (vertical, _) = self.bars();
+        // The line ends clear the vertical scrollbar.
+        let end = if vertical { Scrollbar::width() } else { px(0.) };
+        let view = s.list.viewport_bounds().size.width;
+        (s.text_w.get() + end - self.code_w(view)).max(px(0.))
+    }
+
+    fn x(&self) -> Pixels {
+        self.0.x.get().min(self.max_x())
+    }
+
+    /// Whether the offset changed.
+    fn set_x(&self, x: Pixels) -> bool {
+        let x = x.clamp(px(0.), self.max_x());
+        self.0.x.replace(x) != x
+    }
+
+    /// Scroll sideways by the horizontal part of a wheel event. The list
+    /// takes the vertical part.
+    fn wheel(&self, e: &ScrollWheelEvent, window: &Window) -> bool {
+        let mut delta = e.delta.pixel_delta(window.line_height());
+        if e.delta.precise() {
+            self.0
+                .gesture
+                .borrow_mut()
+                .filter(&mut delta, e.touch_phase);
+        }
+        !delta.x.is_zero() && self.set_x(self.x() - delta.x)
+    }
+}
+
+impl ScrollbarHandle for DiffScroll {
+    fn viewport_bounds(&self) -> Bounds<Pixels> {
+        self.0.list.viewport_bounds()
+    }
+
+    fn offset(&self) -> Point<Pixels> {
+        point(-self.x(), self.0.list.offset().y)
+    }
+
+    fn set_offset(&self, offset: Point<Pixels>) {
+        self.set_x(-offset.x);
+        self.0.list.set_offset(point(px(0.), offset.y));
+    }
+
+    fn content_size(&self) -> Size<Pixels> {
+        let list = self.0.list.content_size();
+        size(list.width + self.max_x(), list.height)
+    }
+}
+
 /// Add and Del lines of the hunk that starts at `hunk`.
 pub(super) fn hunk_lines(file: &FileDiff, hunk: usize) -> HashSet<usize> {
     (hunk + 1..file.lines.len())
@@ -174,7 +331,7 @@ impl GitApp {
     /// `extra` goes in the header, before the view switch.
     #[allow(clippy::too_many_arguments)]
     fn render_diff(
-        &self,
+        &mut self,
         file: Option<DiffFile>,
         styles: Option<Rc<DiffStyles>>,
         ctx: DiffCtx,
@@ -261,34 +418,87 @@ impl GitApp {
             note("Binary file, no text diff.").into_any_element()
         } else if file.lines.is_empty() {
             note("No content changes.").into_any_element()
-        } else if mode == DiffMode::Split {
-            let rows = keep(memo, || split_rows(&file));
-            let (f, st) = (file.clone(), styles.clone());
-            uniform_list(
-                id,
-                rows.len(),
-                cx.processor(move |this, range: Range<usize>, _window, cx| {
-                    range
-                        .map(|i| this.split_row(&f, st.as_deref(), rows[i], i, ctx, partial, cx))
-                        .collect::<Vec<_>>()
-                }),
-            )
-            .flex_1()
-            .into_any_element()
         } else {
-            let n = file.lines.len() + usize::from(file.truncated);
-            let (f, st) = (file.clone(), styles.clone());
-            uniform_list(
-                id,
-                n,
-                cx.processor(move |this, range: Range<usize>, _window, cx| {
-                    range
-                        .map(|i| this.unified_row(&f, st.as_deref(), i, ctx, partial, cx))
-                        .collect::<Vec<_>>()
-                }),
-            )
-            .flex_1()
-            .into_any_element()
+            let layout = keep(memo, || DiffLayout::new(&file, mode));
+            let scroll = self.diff_scroll.entry(id).or_default().clone();
+            let n = match mode {
+                DiffMode::Split => layout.rows.len(),
+                DiffMode::Unified => file.lines.len() + usize::from(file.truncated),
+            };
+            let (size, line_h) = metrics(cx);
+            let text = cx.text_system();
+            let font_id = text.resolve_font(&font(crate::theme::mono_font(cx)));
+            let advance = text
+                .advance(font_id, px(size), 'm')
+                .map_or(px(size * 0.6), |a| a.width);
+            scroll.set_file(
+                &file.path,
+                advance * layout.cols as f32,
+                px(line_h) * n as f32,
+                mode == DiffMode::Split,
+            );
+            let (_, room_below) = scroll.bars();
+            scroll.0.room_below.set(room_below);
+            let (f, st, s) = (file.clone(), styles.clone(), scroll.clone());
+            let mut list = if mode == DiffMode::Split {
+                uniform_list(
+                    id,
+                    n,
+                    cx.processor(move |this, range: Range<usize>, window, cx| {
+                        s.check_room(window);
+                        let x = s.x();
+                        range
+                            .map(|i| {
+                                let row = layout.rows[i];
+                                this.split_row(&f, st.as_deref(), row, i, x, ctx, partial, cx)
+                            })
+                            .collect::<Vec<_>>()
+                    }),
+                )
+            } else {
+                uniform_list(
+                    id,
+                    n,
+                    cx.processor(move |this, range: Range<usize>, window, cx| {
+                        s.check_room(window);
+                        let x = s.x();
+                        range
+                            .map(|i| this.unified_row(&f, st.as_deref(), i, x, ctx, partial, cx))
+                            .collect::<Vec<_>>()
+                    }),
+                )
+            };
+            // Without this, a sideways swipe scrolls the rows up and down.
+            list.style().restrict_scroll_to_axis = Some(true);
+            // GPUI notifies the pane for a scroll of the list. The sideways
+            // scroll is not the list's, so it notifies the pane itself.
+            let pane = self.panes.get(&Part::Diff).map(|p| p.entity_id());
+            let s = scroll.clone();
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .on_scroll_wheel(move |e, window, cx| {
+                    if s.wheel(e, window)
+                        && let Some(pane) = pane
+                    {
+                        cx.notify(pane);
+                    }
+                })
+                .child(
+                    list.track_scroll(&scroll.0.list)
+                        .size_full()
+                        // The last row scrolls clear of the horizontal scrollbar.
+                        .when(room_below, |l| l.pb(Scrollbar::width())),
+                )
+                .child(
+                    div().absolute().inset_0().child(
+                        Scrollbar::new(&scroll)
+                            .mode(ScrollbarMode::Always)
+                            .viewport_from_layout(),
+                    ),
+                )
+                .into_any_element()
         };
         v_flex()
             .size_full()
@@ -379,8 +589,9 @@ impl GitApp {
             .id(("hunk", i))
             .h(px(line_h))
             .w_full()
-            .pl(px(106.))
-            .pr_2()
+            .pl(px(2. * NUM_W + SIGN_W))
+            // The buttons clear the vertical scrollbar.
+            .pr(px(8.) + Scrollbar::width())
             .gap_1()
             .bg(t.colors.primary.opacity(0.07))
             .font_family(crate::theme::mono_font(cx))
@@ -425,11 +636,13 @@ impl GitApp {
             .into_any_element()
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn unified_row(
         &self,
         file: &FileDiff,
         styles: Option<&DiffStyles>,
         i: usize,
+        x: Pixels,
         ctx: DiffCtx,
         partial: bool,
         cx: &mut Context<Self>,
@@ -448,7 +661,7 @@ impl GitApp {
         let (size, line_h) = metrics(cx);
         let num = |n: Option<u32>| {
             div()
-                .w(px(44.))
+                .w(px(NUM_W))
                 .flex_none()
                 .pr_2()
                 .text_right()
@@ -480,7 +693,7 @@ impl GitApp {
                     .child(num(line.new_no)),
             )
             .child(sign(line.kind, cx))
-            .child(code(line, i, styles, cx))
+            .child(code(line, i, styles, x, cx))
             .into_any_element()
     }
 
@@ -491,6 +704,7 @@ impl GitApp {
         styles: Option<&DiffStyles>,
         row: SplitRow,
         ix: usize,
+        x: Pixels,
         ctx: DiffCtx,
         partial: bool,
         cx: &mut Context<Self>,
@@ -504,7 +718,7 @@ impl GitApp {
             SplitRow::Note(i) => {
                 return div()
                     .h(px(line_h))
-                    .pl(px(106.))
+                    .pl(px(2. * NUM_W + SIGN_W))
                     .font_family(crate::theme::mono_font(cx))
                     .text_size(px(11.5))
                     .text_color(muted)
@@ -538,7 +752,7 @@ impl GitApp {
                 .child(
                     div()
                         .id(("split-gutter", i * 2 + usize::from(old)))
-                        .w(px(48.))
+                        .w(px(SPLIT_NUM_W))
                         .h_full()
                         .flex_none()
                         .pr_2()
@@ -557,7 +771,7 @@ impl GitApp {
                         .child(n.map(|n| n.to_string()).unwrap_or_default()),
                 )
                 .child(sign(kind, cx))
-                .child(code(line, i, styles, cx))
+                .child(code(line, i, styles, x, cx))
                 .into_any_element()
         };
         let l = half(left, true, cx);
@@ -625,24 +839,36 @@ fn sign(kind: LineKind, cx: &App) -> impl IntoElement {
         _ => ("", t.colors.muted_foreground),
     };
     div()
-        .w(px(18.))
+        .w(px(SIGN_W))
         .flex_none()
         .text_center()
         .text_color(color)
         .child(text)
 }
 
-/// The line's text with syntax colors and changed-word backgrounds.
-fn code(line: &DiffLine, i: usize, styles: Option<&DiffStyles>, cx: &App) -> impl IntoElement {
-    let t = cx.theme();
-    let mut text = line.text.as_str();
-    if text.len() > MAX_COLS {
-        let mut end = MAX_COLS;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text = &text[..end];
+/// The part of a line that the diff shows.
+fn shown(text: &str) -> &str {
+    if text.len() <= MAX_COLS {
+        return text;
     }
+    let mut end = MAX_COLS;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// The line's text with syntax colors and changed-word backgrounds,
+/// scrolled `x` to the left.
+fn code(
+    line: &DiffLine,
+    i: usize,
+    styles: Option<&DiffStyles>,
+    x: Pixels,
+    cx: &App,
+) -> impl IntoElement {
+    let t = cx.theme();
+    let text = shown(&line.text);
     let len = text.len();
     let clip = |r: &Range<usize>| (r.start < len).then(|| r.start..r.end.min(len));
     let mut spans: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
@@ -680,7 +906,11 @@ fn code(line: &DiffLine, i: usize, styles: Option<&DiffStyles>, cx: &App) -> imp
         .overflow_hidden()
         .whitespace_nowrap()
         .text_color(color)
-        .child(StyledText::new(text.to_string()).with_highlights(spans))
+        .child(
+            div()
+                .ml(-x)
+                .child(StyledText::new(text.to_string()).with_highlights(spans)),
+        )
 }
 
 /// A file row for lists: change badge, name, folder, counts.
