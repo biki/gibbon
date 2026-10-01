@@ -93,7 +93,8 @@ Next steps:
   now), a stacked pull request whose parent branch never reached the base
   branch (it counts as merged now), and an undo for the deletes (see
   **Deleted branches** above).
-- **Sort Changes by recent edits** — idea. Sort by modification time, and
+- **Sort Changes by recent edits** — done. The sort button of the Changes
+  list has **Recent Edits First**: the newest file on disk first. Next:
   briefly highlight the files that changed in the last refresh.
 - **Blame and file history** — idea. Go from a line in the diff to the
   commit that wrote it, and from that commit to its pull request.

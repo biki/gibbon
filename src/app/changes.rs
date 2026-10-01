@@ -31,6 +31,7 @@ fn scope(staged: bool) -> &'static str {
 impl GitApp {
     /// Staged files, then unstaged files, each in the view of the settings.
     fn change_rows(&self, cx: &App) -> Vec<Row> {
+        let s = crate::settings::get(cx);
         let mut rows = Vec::new();
         for staged in [true, false] {
             let entries: Vec<usize> = (0..self.status.len())
@@ -54,8 +55,22 @@ impl GitApp {
                 .iter()
                 .map(|&i| self.status[i].path.as_str())
                 .collect();
+            let times: Vec<_> = entries
+                .iter()
+                .map(|&i| {
+                    let e = &self.status[i];
+                    e.modified.or_else(|| self.deleted_at.get(&e.path).copied())
+                })
+                .collect();
+            let sort = if s.changes_recent {
+                files::Sort::Recent(&times)
+            } else {
+                files::Sort::Name {
+                    desc: s.file_sort_desc,
+                }
+            };
             rows.extend(
-                self.file_rows(scope(staged), &paths, cx)
+                self.sorted_file_rows(scope(staged), &paths, sort, cx)
                     .into_iter()
                     .map(|r| match r {
                         FileRow::Dir(dir) => Row::Dir { staged, dir },
@@ -175,7 +190,7 @@ impl GitApp {
                     .truncate()
                     .child(format!("{n} changed file{}", history::plural(n))),
             )
-            .child(files::view_buttons(cx))
+            .child(files::change_view_buttons(cx))
     }
 
     fn render_paused_banner(&self, p: git::Paused, cx: &mut Context<Self>) -> impl IntoElement {

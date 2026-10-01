@@ -78,6 +78,9 @@ palette and on the welcome screen.
 - Unified or split (side-by-side) view.
 - Changed files show as a list sorted by name (A to Z or Z to A) or as a
   tree of folders. All file lists use the same choice.
+- The Changes list can also show the most recent edits first, by the time of
+  each file on disk. A file that is deleted while the tab is open counts from
+  the time Gibbon sees it go. Files that were deleted before go last.
 
 ### Staging
 

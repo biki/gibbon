@@ -32,6 +32,9 @@ pub struct Settings {
     pub file_tree: bool,
     /// File lists sort names Z to A.
     pub file_sort_desc: bool,
+    /// The Changes list puts the most recently edited files first, and does
+    /// not sort by name.
+    pub changes_recent: bool,
     /// Interface font, an id from `fonts::UI_FONTS`.
     pub ui_font: String,
     /// Code font, an id from `fonts::CODE_FONTS`.
@@ -55,6 +58,7 @@ impl Default for Settings {
             split_diff: false,
             file_tree: false,
             file_sort_desc: false,
+            changes_recent: false,
             ui_font: crate::fonts::DEFAULT_UI.into(),
             code_font: crate::fonts::DEFAULT_CODE.into(),
             panes: BTreeMap::new(),

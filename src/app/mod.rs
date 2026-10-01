@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::SystemTime;
 
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{ButtonVariant, ButtonVariants as _};
@@ -155,6 +156,10 @@ pub struct GitApp {
     refs_loaded: bool,
     branches: Vec<Branch>,
     status: Vec<StatusEntry>,
+    /// When this tab saw each deleted file of `status` go: a deleted file has
+    /// no time on disk. The files that were gone at the first load are not in
+    /// it.
+    deleted_at: HashMap<String, SystemTime>,
     stashes: Vec<git::Stash>,
     prs: Vec<crate::github::PullRequest>,
     /// Checks, review and merge state of the pull requests, by number.
@@ -285,6 +290,7 @@ impl GitApp {
             refs_loaded: false,
             branches: vec![],
             status: vec![],
+            deleted_at: HashMap::new(),
             stashes: vec![],
             prs: vec![],
             pr_status: HashMap::new(),
@@ -450,15 +456,15 @@ impl GitApp {
                     return;
                 }
                 this.head = head;
-                this.refs_loaded = true;
                 match branches {
                     Ok(b) => this.branches = b,
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 match status {
-                    Ok(s) => this.status = s,
+                    Ok(s) => this.set_status(s),
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
+                this.refs_loaded = true;
                 this.paused = paused;
                 this.stashes = stashes.unwrap_or_default();
                 if let Ok((list, current, base)) = worktrees {
@@ -666,7 +672,7 @@ impl GitApp {
                     return;
                 }
                 if let Ok(s) = status {
-                    this.status = s;
+                    this.set_status(s);
                 }
                 this.paused = paused;
                 this.ensure_change_selection(cx);
@@ -677,6 +683,29 @@ impl GitApp {
             });
         })
         .detach();
+    }
+
+    /// Take a new working-tree status. A file that is newly deleted gets the
+    /// time of now. Before the first load (`refs_loaded`), no file is new.
+    fn set_status(&mut self, status: Vec<StatusEntry>) {
+        let now = SystemTime::now();
+        let before: HashMap<&str, Option<SystemTime>> = self
+            .status
+            .iter()
+            .map(|e| (e.path.as_str(), e.modified))
+            .collect();
+        let mut deleted_at = HashMap::new();
+        for e in status.iter().filter(|e| e.modified.is_none()) {
+            let time = match before.get(e.path.as_str()) {
+                Some(None) => self.deleted_at.get(&e.path).copied(),
+                _ => self.refs_loaded.then_some(now),
+            };
+            if let Some(t) = time {
+                deleted_at.insert(e.path.clone(), t);
+            }
+        }
+        self.deleted_at = deleted_at;
+        self.status = status;
     }
 
     fn load_log(&mut self, cx: &mut Context<Self>) {

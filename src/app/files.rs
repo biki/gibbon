@@ -1,7 +1,10 @@
-//! File lists: a flat list sorted by name, or a tree of folders.
+//! File lists: a flat list sorted by name or by time, or a tree of folders.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::time::SystemTime;
+
+use gpui_kit::component::menu::PopupMenu;
 
 use super::*;
 
@@ -46,6 +49,41 @@ fn split(path: &str) -> (&str, &str) {
     path.rsplit_once('/').unwrap_or(("", path))
 }
 
+/// How a file list sorts.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Sort<'a> {
+    /// By name: A to Z, or Z to A with `desc`.
+    Name { desc: bool },
+    /// By the time of each path, the newest first, then by name. A path
+    /// without a time comes last.
+    Recent(&'a [Option<SystemTime>]),
+}
+
+impl Sort<'_> {
+    /// The time of the path at `ix` that this sort uses.
+    fn time(self, ix: usize) -> Option<SystemTime> {
+        match self {
+            Sort::Name { .. } => None,
+            Sort::Recent(times) => times[ix],
+        }
+    }
+
+    /// The order of two items with the times `a` and `b`, and the order
+    /// `name` of their names from A to Z.
+    fn cmp(
+        self,
+        a: Option<SystemTime>,
+        b: Option<SystemTime>,
+        name: impl FnOnce() -> Ordering,
+    ) -> Ordering {
+        match self {
+            Sort::Name { desc: false } => name(),
+            Sort::Name { desc: true } => name().reverse(),
+            Sort::Recent(_) => b.cmp(&a).then_with(name),
+        }
+    }
+}
+
 /// Ignore case first, then compare exactly, so the order is stable. It
 /// compares char by char: a sort calls it often, and must not make strings.
 fn name_cmp(a: &str, b: &str) -> Ordering {
@@ -59,22 +97,25 @@ fn name_cmp(a: &str, b: &str) -> Ordering {
 struct Node<'a> {
     dirs: BTreeMap<&'a str, Node<'a>>,
     files: Vec<usize>,
+    /// The newest time of the files in the folder and its subfolders.
+    newest: Option<SystemTime>,
 }
 
-/// The rows for `paths`: sorted by file name, or as a tree with folders
-/// first. `desc` sorts Z to A. The contents of `collapsed` folders are left out.
+/// The rows for `paths` in the order `sort`: a flat list, or a tree with
+/// folders first. The contents of `collapsed` folders are left out.
 pub(super) fn layout(
     paths: &[&str],
     tree: bool,
-    desc: bool,
+    sort: Sort,
     collapsed: &dyn Fn(&str) -> bool,
 ) -> Vec<FileRow> {
-    let order = |o: Ordering| if desc { o.reverse() } else { o };
     if !tree {
         let mut ix: Vec<usize> = (0..paths.len()).collect();
         ix.sort_by(|&a, &b| {
-            let ((dir_a, a), (dir_b, b)) = (split(paths[a]), split(paths[b]));
-            order(name_cmp(a, b).then_with(|| name_cmp(dir_a, dir_b)))
+            sort.cmp(sort.time(a), sort.time(b), || {
+                let ((dir_a, a), (dir_b, b)) = (split(paths[a]), split(paths[b]));
+                name_cmp(a, b).then_with(|| name_cmp(dir_a, dir_b))
+            })
         });
         return ix
             .into_iter()
@@ -83,14 +124,16 @@ pub(super) fn layout(
     }
     let mut root = Node::default();
     for (i, path) in paths.iter().enumerate() {
+        let time = sort.time(i);
         let mut node = &mut root;
         for part in split(path).0.split('/').filter(|p| !p.is_empty()) {
             node = node.dirs.entry(part).or_default();
+            node.newest = node.newest.max(time);
         }
         node.files.push(i);
     }
     let mut rows = Vec::new();
-    push_node(&root, "", 0, paths, &order, collapsed, &mut rows);
+    push_node(&root, "", 0, paths, sort, collapsed, &mut rows);
     rows
 }
 
@@ -99,12 +142,12 @@ fn push_node(
     prefix: &str,
     depth: usize,
     paths: &[&str],
-    order: &dyn Fn(Ordering) -> Ordering,
+    sort: Sort,
     collapsed: &dyn Fn(&str) -> bool,
     rows: &mut Vec<FileRow>,
 ) {
     let mut dirs: Vec<_> = node.dirs.iter().collect();
-    dirs.sort_by(|a, b| order(name_cmp(a.0, b.0)));
+    dirs.sort_by(|a, b| sort.cmp(a.1.newest, b.1.newest, || name_cmp(a.0, b.0)));
     for (&name, mut sub) in dirs {
         let mut key = if prefix.is_empty() {
             name.to_string()
@@ -128,11 +171,15 @@ fn push_node(
             collapsed: shut,
         }));
         if !shut {
-            push_node(sub, &key, depth + 1, paths, order, collapsed, rows);
+            push_node(sub, &key, depth + 1, paths, sort, collapsed, rows);
         }
     }
     let mut files = node.files.clone();
-    files.sort_by(|&a, &b| order(name_cmp(split(paths[a]).1, split(paths[b]).1)));
+    files.sort_by(|&a, &b| {
+        sort.cmp(sort.time(a), sort.time(b), || {
+            name_cmp(split(paths[a]).1, split(paths[b]).1)
+        })
+    });
     rows.extend(files.into_iter().map(|ix| FileRow::File {
         ix,
         depth: Some(depth),
@@ -146,7 +193,7 @@ pub(super) fn first(
     desc: bool,
     collapsed: &dyn Fn(&str) -> bool,
 ) -> Option<usize> {
-    layout(paths, tree, desc, collapsed)
+    layout(paths, tree, Sort::Name { desc }, collapsed)
         .into_iter()
         .find_map(|r| match r {
             FileRow::File { ix, .. } => Some(ix),
@@ -158,8 +205,20 @@ impl GitApp {
     /// The rows of the file list `scope`, in the view and order of the
     /// settings.
     pub(super) fn file_rows(&self, scope: &'static str, paths: &[&str], cx: &App) -> Vec<FileRow> {
-        let s = crate::settings::get(cx);
-        layout(paths, s.file_tree, s.file_sort_desc, &|dir| {
+        let desc = crate::settings::get(cx).file_sort_desc;
+        self.sorted_file_rows(scope, paths, Sort::Name { desc }, cx)
+    }
+
+    /// The rows of the file list `scope` in the order `sort`, in the view of
+    /// the settings.
+    pub(super) fn sorted_file_rows(
+        &self,
+        scope: &'static str,
+        paths: &[&str],
+        sort: Sort,
+        cx: &App,
+    ) -> Vec<FileRow> {
+        layout(paths, crate::settings::get(cx).file_tree, sort, &|dir| {
             self.collapsed_dirs.contains(&(scope, dir.to_string()))
         })
     }
@@ -250,44 +309,98 @@ pub(super) fn files_bar(files: &[FileDiff], cx: &App) -> Div {
 /// The sort button and the list or tree switch, for the bar above a file
 /// list. They change the settings, so every file list follows.
 pub(super) fn view_buttons(cx: &App) -> impl IntoElement {
+    let desc = crate::settings::get(cx).file_sort_desc;
+    let sort = button("files-sort")
+        .ghost()
+        .small()
+        .icon(name_icon(desc))
+        .tooltip(name_tip(desc))
+        .on_click(|_, _, cx| crate::settings::update(cx, |s| s.file_sort_desc = !s.file_sort_desc));
+    view_bar(sort, "List, sorted by name", cx)
+}
+
+/// `view_buttons` for the Changes list. Its sort button opens a menu: the
+/// names, or the most recent edits first.
+pub(super) fn change_view_buttons(cx: &App) -> impl IntoElement {
     let s = crate::settings::get(cx);
-    let desc = s.file_sort_desc;
-    h_flex()
-        .flex_none()
-        .gap_1()
-        .child(
-            button("files-sort")
-                .ghost()
-                .small()
-                .icon(Icon::new(if desc {
-                    IconName::ArrowDownZA
-                } else {
-                    IconName::ArrowDownAZ
-                }))
-                .tooltip(if desc { "Names Z to A" } else { "Names A to Z" })
-                .on_click(|_, _, cx| {
-                    crate::settings::update(cx, |s| s.file_sort_desc = !s.file_sort_desc)
-                }),
-        )
-        .child(segmented(
-            "files-view",
-            &[
-                (Segment::Icon(IconName::List, "List, sorted by name"), false),
-                (
-                    Segment::Icon(IconName::ListTree, "Tree, grouped by folder"),
-                    true,
-                ),
-            ],
-            s.file_tree,
-            |tree, _, cx| crate::settings::update(cx, |s| s.file_tree = tree),
-            cx,
-        ))
+    let (recent, desc) = (s.changes_recent, s.file_sort_desc);
+    let sort = button("changes-sort")
+        .ghost()
+        .small()
+        .icon(if recent {
+            IconName::ClockArrowDown
+        } else {
+            name_icon(desc)
+        })
+        .tooltip(if recent {
+            "Recent edits first"
+        } else {
+            name_tip(desc)
+        })
+        .dropdown_menu(move |menu, _, _| {
+            // Each choice sets both: the names sort the other lists too.
+            let choice = |menu: PopupMenu, label, on: bool, recent: bool, desc: bool| {
+                menu.item(
+                    PopupMenuItem::new(label)
+                        .checked(on)
+                        .on_click(move |_, _, cx| {
+                            crate::settings::update(cx, |s| {
+                                s.changes_recent = recent;
+                                s.file_sort_desc = desc;
+                            })
+                        }),
+                )
+            };
+            let menu = choice(menu, "Names A to Z", !recent && !desc, false, false);
+            let menu = choice(menu, "Names Z to A", !recent && desc, false, true);
+            choice(menu, "Recent Edits First", recent, true, desc)
+        });
+    let list_tip = if recent {
+        "List, recent edits first"
+    } else {
+        "List, sorted by name"
+    };
+    view_bar(sort, list_tip, cx)
+}
+
+fn name_icon(desc: bool) -> IconName {
+    if desc {
+        IconName::ArrowDownZA
+    } else {
+        IconName::ArrowDownAZ
+    }
+}
+
+fn name_tip(desc: bool) -> &'static str {
+    if desc { "Names Z to A" } else { "Names A to Z" }
+}
+
+/// `sort`, then the list or tree switch.
+fn view_bar(sort: impl IntoElement, list_tip: &'static str, cx: &App) -> impl IntoElement {
+    h_flex().flex_none().gap_1().child(sort).child(segmented(
+        "files-view",
+        &[
+            (Segment::Icon(IconName::List, list_tip), false),
+            (
+                Segment::Icon(IconName::ListTree, "Tree, grouped by folder"),
+                true,
+            ),
+        ],
+        crate::settings::get(cx).file_tree,
+        |tree, _, cx| crate::settings::update(cx, |s| s.file_tree = tree),
+        cx,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     // Not `super::*`: that brings in GPUI's `test` macro.
-    use super::{FileRow, layout, split};
+    use std::time::{Duration, SystemTime};
+
+    use super::{FileRow, Sort, layout, split};
+
+    const AZ: Sort = Sort::Name { desc: false };
+    const ZA: Sort = Sort::Name { desc: true };
 
     const PATHS: [&str; 6] = [
         "src/app/mod.rs",
@@ -312,7 +425,7 @@ mod tests {
 
     #[test]
     fn list_sorts_by_file_name() {
-        let rows = layout(&PATHS, false, false, &|_| false);
+        let rows = layout(&PATHS, false, AZ, &|_| false);
         assert_eq!(
             show(&rows),
             [
@@ -324,14 +437,14 @@ mod tests {
                 "README.md",
             ]
         );
-        let rows = layout(&PATHS, false, true, &|_| false);
+        let rows = layout(&PATHS, false, ZA, &|_| false);
         assert_eq!(show(&rows)[0], "README.md");
         assert_eq!(show(&rows)[5], "assets/icons/app.svg");
     }
 
     #[test]
     fn tree_puts_folders_first_and_joins_single_folders() {
-        let rows = layout(&PATHS, true, false, &|_| false);
+        let rows = layout(&PATHS, true, AZ, &|_| false);
         assert_eq!(
             show(&rows),
             [
@@ -350,7 +463,7 @@ mod tests {
 
     #[test]
     fn tree_hides_collapsed_folders() {
-        let rows = layout(&PATHS, true, true, &|dir| dir == "src/app");
+        let rows = layout(&PATHS, true, ZA, &|dir| dir == "src/app");
         assert_eq!(
             show(&rows),
             [
@@ -364,5 +477,39 @@ mod tests {
             ]
         );
         assert!(matches!(&rows[1], FileRow::Dir(d) if d.key == "src/app" && d.collapsed));
+    }
+
+    #[test]
+    fn recent_puts_the_newest_first_and_folders_by_their_newest_file() {
+        let at = |s| Some(SystemTime::UNIX_EPOCH + Duration::from_secs(s));
+        // diff.rs is deleted: it has no time. main.rs and Cargo.toml tie.
+        let times = [at(5), at(1), None, at(3), at(2), at(3)];
+        let rows = layout(&PATHS, false, Sort::Recent(&times), &|_| false);
+        assert_eq!(
+            show(&rows),
+            [
+                "src/app/mod.rs",
+                "Cargo.toml",
+                "src/main.rs",
+                "assets/icons/app.svg",
+                "README.md",
+                "src/app/diff.rs",
+            ]
+        );
+        let rows = layout(&PATHS, true, Sort::Recent(&times), &|_| false);
+        assert_eq!(
+            show(&rows),
+            [
+                "0 src/",
+                "1 app/",
+                "2 mod.rs",
+                "2 diff.rs",
+                "1 main.rs",
+                "0 assets/icons/",
+                "1 app.svg",
+                "0 Cargo.toml",
+                "0 README.md",
+            ]
+        );
     }
 }

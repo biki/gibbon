@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 
@@ -923,6 +924,8 @@ pub struct StatusEntry {
     pub staged: Option<Change>,
     /// Change in the working tree (unstaged), if any.
     pub unstaged: Option<Change>,
+    /// When the file last changed on disk. None when the file is gone.
+    pub modified: Option<SystemTime>,
 }
 
 fn change_of(c: u8) -> Option<Change> {
@@ -960,6 +963,7 @@ pub fn status(repo: &Repo) -> Result<Vec<StatusEntry>> {
                     path,
                     staged: change_of(xy[0]),
                     unstaged: change_of(xy[1]),
+                    modified: None,
                 });
             }
             b'u' => {
@@ -968,15 +972,24 @@ pub fn status(repo: &Repo) -> Result<Vec<StatusEntry>> {
                     path: parts.last().copied().unwrap_or_default().to_string(),
                     staged: None,
                     unstaged: Some(Change::Conflicted),
+                    modified: None,
                 });
             }
             b'?' => entries.push(StatusEntry {
                 path: rec[2..].to_string(),
                 staged: None,
                 unstaged: Some(Change::Untracked),
+                modified: None,
             }),
             _ => {}
         }
+    }
+    // Git reads the times of the tracked files for the status anyway, so
+    // this costs little next to it. A link is its own content, as for Git.
+    for e in &mut entries {
+        e.modified = std::fs::symlink_metadata(repo.root.join(&e.path))
+            .and_then(|m| m.modified())
+            .ok();
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(entries)
@@ -1689,14 +1702,10 @@ pub fn worktree_info(wt: &Worktree, base: Option<&str>) -> Result<WorktreeInfo> 
         info.active = time.parse().unwrap_or(0);
         info.subject = subject.to_string();
     }
-    // Stat a bounded number of files: an agent can make thousands.
-    for e in changes.iter().take(2_000) {
-        let modified = std::fs::metadata(wt.path.join(&e.path)).and_then(|m| m.modified());
-        if let Ok(t) = modified
-            && let Ok(d) = t.duration_since(std::time::UNIX_EPOCH)
-        {
-            info.active = info.active.max(d.as_secs() as i64);
-        }
+    if let Some(t) = changes.iter().filter_map(|e| e.modified).max()
+        && let Ok(d) = t.duration_since(std::time::UNIX_EPOCH)
+    {
+        info.active = info.active.max(d.as_secs() as i64);
     }
     if let Some(base) = base
         && wt.head.is_some()
