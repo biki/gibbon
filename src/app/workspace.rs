@@ -7,6 +7,7 @@ use gpui_kit::component::menu::ContextMenuExt as _;
 
 use super::clone::{CloneDialog, Cloned};
 use super::*;
+use crate::update::{Outcome, Updates};
 use crate::{CloseTab, NextTab, PrevTab};
 
 struct Tab {
@@ -82,6 +83,7 @@ pub struct Workspace {
     /// The open Clone dialog. It goes when the dialog closes.
     clone_dialog: WeakEntity<CloneDialog>,
     clone_sub: Option<Subscription>,
+    updates_sub: Option<Subscription>,
     /// Open the Clone dialog on the first frame (UI checks).
     check_clone: bool,
 }
@@ -100,6 +102,7 @@ impl Workspace {
             dragged: None,
             clone_dialog: WeakEntity::new_invalid(),
             clone_sub: None,
+            updates_sub: None,
             check_clone: false,
         }
     }
@@ -141,6 +144,32 @@ impl Workspace {
             app.update(cx, |app, cx| app.apply_check_env(cx));
         }
         self.check_clone = std::env::var("GIBBON_DIALOG").as_deref() == Ok("clone");
+    }
+
+    /// Show what the update checks find: a Restart button for an installed
+    /// update, and the outcome of a check that the user asked for.
+    pub fn watch_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.updates_sub = Some(cx.observe_global_in::<Updates>(window, |this, window, cx| {
+            let u = cx.global::<Updates>();
+            if u.busy {
+                return;
+            }
+            match (u.last.clone(), u.asked) {
+                (Some(Outcome::Installed(version)), _) => window.defer(cx, move |window, cx| {
+                    window.push_notification(restart_toast(&version), cx)
+                }),
+                (Some(Outcome::Current(version)), true) => {
+                    let msg = format!("Gibbon {version} is the latest version.");
+                    this.toasts.push((Some(true), msg));
+                    cx.notify();
+                }
+                (Some(Outcome::Failed(e)), true) => {
+                    this.toasts.push((Some(false), e));
+                    cx.notify();
+                }
+                _ => {}
+            }
+        }));
     }
 
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {
@@ -734,6 +763,21 @@ fn tab_label(name: SharedString, busy: bool, muted: Hsla) -> [AnyElement; 2] {
             .child(name)
             .into_any_element(),
     ]
+}
+
+/// The restart toast. A new one takes the place of the one on screen.
+struct UpdateReady;
+
+/// An installed update, with a button that restarts Gibbon.
+fn restart_toast(version: &str) -> Notification {
+    toast(Some(true), format!("Gibbon {version} is installed."))
+        .id::<UpdateReady>()
+        .action(|_, _, _| {
+            button("restart")
+                .primary()
+                .label("Restart")
+                .on_click(|_, _, cx| cx.restart())
+        })
 }
 
 /// A toast with its icon centered on the first line of the message.

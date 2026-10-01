@@ -53,6 +53,8 @@ pub struct Settings {
     /// Minutes between automatic fetches of the shown tab, 0 for none. A tab
     /// that shows again fetches too.
     pub auto_fetch: u32,
+    /// Install new releases from GitHub (`update`).
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -74,6 +76,7 @@ impl Default for Settings {
             commit_body: false,
             clone_dir: None,
             auto_fetch: 10,
+            auto_update: true,
         }
     }
 }

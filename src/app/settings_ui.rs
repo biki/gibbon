@@ -68,6 +68,13 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
             |n, _, cx| settings::update(cx, |s| s.auto_fetch = n),
             cx,
         );
+        let updates = segmented(
+            "set-updates",
+            &[("Off", false), ("Automatic", true)],
+            s.auto_update,
+            |on, _, cx| settings::update(cx, |s| s.auto_update = on),
+            cx,
+        );
         let ui_font = fonts::ui(&s.ui_font);
         let code_font = fonts::code(&s.code_font);
         let section = |label: &'static str, grid: AnyElement, preview: Option<AnyElement>| {
@@ -136,6 +143,11 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
                     "Fetch",
                     "Fetch all remotes on this timer, and when you switch tabs.",
                     fetch.into_any_element(),
+                ))
+                .child(row(
+                    "Updates",
+                    "Install new releases from GitHub. Restart Gibbon to use one.",
+                    updates.into_any_element(),
                 )),
         )
     });

@@ -15,6 +15,7 @@ mod recent;
 mod session;
 mod settings;
 mod theme;
+mod update;
 mod watch;
 
 actions!(
@@ -41,6 +42,7 @@ actions!(
         StashChanges,
         TogglePalette,
         OpenSettings,
+        CheckForUpdates,
         SelectPrev,
         SelectNext,
     ]
@@ -78,6 +80,7 @@ fn main() {
             eprintln!("font load error: {e:#}");
         }
         theme::apply(cx);
+        update::start(cx);
         open_window(cx, arg.clone());
         if !no_activate() {
             cx.activate(true);
@@ -140,9 +143,11 @@ fn bind_keys(cx: &mut App) {
 fn install_menus(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &HideApp, cx| cx.hide());
+    cx.on_action(|_: &CheckForUpdates, cx| update::check(true, cx));
     cx.set_menus([
         Menu::new("Gibbon").items([
             MenuItem::action("Settings…", OpenSettings),
+            MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Command Palette…", TogglePalette),
             MenuItem::separator(),
             MenuItem::action("Hide Gibbon", HideApp),
@@ -208,7 +213,10 @@ fn open_window(cx: &mut App, path: Option<PathBuf>) {
         cx,
         |window, cx| {
             let view = cx.new(app::Workspace::new);
-            view.update(cx, |ws, cx| ws.restore(path, window, cx));
+            view.update(cx, |ws, cx| {
+                ws.restore(path, window, cx);
+                ws.watch_updates(window, cx);
+            });
             window
                 .observe_window_appearance(|_, cx| {
                     theme::apply(cx);

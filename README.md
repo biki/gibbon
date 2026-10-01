@@ -283,7 +283,7 @@ file, and the review with its Viewed marks.
 ### Install
 
 On a Mac with Apple Silicon, this command installs the latest release in
-`/Applications`. Run it again to update Gibbon.
+`/Applications`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/biki/gibbon/main/scripts/install.sh | bash
@@ -294,6 +294,14 @@ notarization when a browser downloads it, until you allow it in System
 Settings › Privacy & Security. The script downloads with `curl`, which does
 not mark the file for this check. The script also checks the signature of
 the download.
+
+Then Gibbon updates itself. It checks for a new release when it starts and
+every 12 hours, downloads it, and replaces the app when the release has the
+signature of the installed app. The new version runs when you click
+**Restart** or the next time you open Gibbon.
+**Gibbon › Check for Updates…** checks at once, and **Settings › Updates**
+turns off the automatic checks. A build with an ad hoc signature does not
+update itself.
 
 ### Build from source
 
@@ -347,6 +355,7 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
 | Settings, recent repositories and the last session | `~/Library/Application Support/gibbon/` |
 | Fetched pull request heads | `refs/gibbon/pr/<number>` in your repository |
 | Messages of a paused interactive rebase | `.git/gibbon-rebase/` in your repository |
+| A downloaded update, until Gibbon installs it | `.Gibbon-update/` next to `Gibbon.app` |
 
 ## Known limits
 
@@ -363,7 +372,8 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
   reviews or the comments.
 - Activity reads the reflog files. A repository in the reftable format shows
   no moves. Git deletes the reflog of a deleted branch, so its moves go too.
-- No in-app updates and no notarized builds yet.
+- The releases have no Apple notarization and run on Apple Silicon only.
+  Intel Macs must build Gibbon from source.
 
 ## Development
 
@@ -397,6 +407,7 @@ Environment variables for automated UI checks:
 | `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore\|cleanup\|clone` | Open that dialog (restore: for the newest move that dropped commits) |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
+| `GIBBON_RELEASES=<url>` | Read the latest release from this URL, in the JSON of the GitHub API (a `file://` URL works). Update checks then run also with `GIBBON_BACKGROUND=1` |
 
 `scripts/screenshots.sh` takes the screenshots of this README again. It
 builds a demo repository with agent branches from Gibbon's own history,
