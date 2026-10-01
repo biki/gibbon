@@ -193,6 +193,9 @@ worktrees, in one step.
   searches all branches.
 - Create, rename, delete and switch branches (double-click to switch).
 - Delete a remote branch on its remote: right-click it in the sidebar.
+- Gibbon fetches all remotes of the shown tab every 10 minutes, and when you
+  switch to a tab that did not fetch in the last minute. Settings change the
+  time or turn it off. Only the first error of a run of failed fetches shows.
 - Stash all changes, look at a stash's diff, then apply, pop or drop it.
   Right-click a stash in the sidebar to do the same without opening it.
 - When a cherry-pick, rebase, merge or revert stops on a conflict, Gibbon

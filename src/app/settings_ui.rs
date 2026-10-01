@@ -8,6 +8,8 @@ use super::*;
 
 const UI_SIZES: [(&str, f32); 4] = [("12", 12.), ("13", 13.), ("14", 14.), ("15", 15.)];
 const CODE_SIZES: [(&str, f32); 4] = [("11", 11.), ("12", 12.), ("13", 13.), ("14", 14.)];
+/// Minutes between automatic fetches.
+const FETCH_EVERY: [(&str, u32); 4] = [("Off", 0), ("5 min", 5), ("10 min", 10), ("30 min", 30)];
 
 /// The settings dialog. It needs no repository.
 pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
@@ -57,6 +59,13 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
             &[("Unified", false), ("Split", true)],
             s.split_diff,
             |split, _, cx| settings::update(cx, |s| s.split_diff = split),
+            cx,
+        );
+        let fetch = segmented(
+            "set-fetch",
+            &FETCH_EVERY,
+            s.auto_fetch,
+            |n, _, cx| settings::update(cx, |s| s.auto_fetch = n),
             cx,
         );
         let ui_font = fonts::ui(&s.ui_font);
@@ -122,7 +131,12 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
                     "Size of the text in diffs.",
                     code.into_any_element(),
                 ))
-                .child(row("Diffs", "How diffs open.", diff.into_any_element())),
+                .child(row("Diffs", "How diffs open.", diff.into_any_element()))
+                .child(row(
+                    "Fetch",
+                    "Fetch all remotes on this timer, and when you switch tabs.",
+                    fetch.into_any_element(),
+                )),
         )
     });
 }

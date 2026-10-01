@@ -68,7 +68,12 @@ fn main() {
         gpui_kit::init(cx);
         bind_keys(cx);
         install_menus(cx);
-        cx.set_global(settings::load());
+        let mut set = settings::load();
+        if background() {
+            // UI checks stay off the network.
+            set.auto_fetch = 0;
+        }
+        cx.set_global(set);
         if let Err(e) = fonts::load(cx) {
             eprintln!("font load error: {e:#}");
         }

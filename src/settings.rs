@@ -46,6 +46,9 @@ pub struct Settings {
     pub commit_body: bool,
     /// The folder that the last clone went into.
     pub clone_dir: Option<PathBuf>,
+    /// Minutes between automatic fetches of the shown tab, 0 for none. A tab
+    /// that shows again fetches too.
+    pub auto_fetch: u32,
 }
 
 impl Default for Settings {
@@ -64,6 +67,7 @@ impl Default for Settings {
             panes: BTreeMap::new(),
             commit_body: false,
             clone_dir: None,
+            auto_fetch: 10,
         }
     }
 }

@@ -110,6 +110,8 @@ const WORKTREE_TICK: std::time::Duration = std::time::Duration::from_secs(30);
 /// while none run. GitHub takes seconds for it, and counts the calls.
 const PR_TICK_RUNNING: std::time::Duration = std::time::Duration::from_secs(60);
 const PR_TICK_IDLE: std::time::Duration = std::time::Duration::from_secs(300);
+/// A tab that shows again fetches when its last fetch is older than this.
+const SHOWN_FETCH_GAP: std::time::Duration = std::time::Duration::from_secs(60);
 
 mod activity;
 mod branches;
@@ -170,6 +172,13 @@ pub struct GitApp {
     /// When `pr_status` last loaded.
     pr_status_at: Option<std::time::Instant>,
     pr_epoch: u64,
+    /// When the last fetch of this tab started.
+    fetched_at: Option<Instant>,
+    /// An automatic fetch runs. With `true` it shows its result: the user
+    /// clicked Fetch while it ran.
+    auto_fetching: Option<bool>,
+    /// The last automatic fetch failed: the next failures show no toast.
+    auto_fetch_failed: bool,
     /// The worktrees of the repository, the main one first.
     worktrees: Vec<git::Worktree>,
     /// The worktree of this tab, an index into `worktrees`.
@@ -300,6 +309,9 @@ impl GitApp {
             pr_status: HashMap::new(),
             pr_status_at: None,
             pr_epoch: 0,
+            fetched_at: None,
+            auto_fetching: None,
+            auto_fetch_failed: false,
             worktrees: vec![],
             current_worktree: None,
             worktree_info: HashMap::new(),
@@ -398,7 +410,9 @@ impl GitApp {
         self.restore_session();
         // The first reload starts the watcher: it needs the worktrees.
         self.reload(cx);
-        self.load_prs(cx);
+        if !self.auto_fetch(SHOWN_FETCH_GAP, cx) {
+            self.load_prs(cx);
+        }
         self._tick = Some(cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(WORKTREE_TICK).await;
@@ -408,6 +422,9 @@ impl GitApp {
                         if this.pr_status_due() {
                             this.load_pr_status(cx);
                         }
+                        let minutes = crate::settings::get(cx).auto_fetch;
+                        let every = std::time::Duration::from_secs(60 * u64::from(minutes));
+                        this.auto_fetch(every, cx);
                     }
                 });
                 if shown.is_err() {
@@ -603,14 +620,17 @@ impl GitApp {
         }
     }
 
-    /// Hide or show this tab. Showing it reloads what changed while hidden.
+    /// Hide or show this tab. Showing it reloads what changed while hidden,
+    /// and fetches.
     pub(super) fn set_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
+        let shown = self.hidden && !hidden;
         self.hidden = hidden;
-        if !hidden {
+        if shown {
             let change = std::mem::take(&mut self.hidden_change);
             if change != DiskChange::default() {
                 self.disk_changed(change, cx);
             }
+            self.auto_fetch(SHOWN_FETCH_GAP, cx);
         }
     }
 
@@ -1377,6 +1397,14 @@ impl GitApp {
     }
 
     fn fetch(&mut self, cx: &mut Context<Self>) {
+        if let Some(show) = &mut self.auto_fetching {
+            // The automatic fetch that runs shows its result.
+            *show = true;
+            return;
+        }
+        if self.repo.is_some() && self.busy.is_none() {
+            self.fetched_at = Some(Instant::now());
+        }
         self.run_op(
             "Fetching…",
             Some("Fetched all remotes".into()),
@@ -1384,6 +1412,49 @@ impl GitApp {
             cx,
         );
         self.load_prs(cx);
+    }
+
+    /// Fetch all remotes when automatic fetch is on and the last fetch is
+    /// older than `gap`. It runs next to other operations, and shows no
+    /// toast. It shows only its first error until a fetch works again. Also
+    /// reload the pull requests. Returns whether a fetch started.
+    fn auto_fetch(&mut self, gap: std::time::Duration, cx: &mut Context<Self>) -> bool {
+        let Some(repo) = self.repo.clone() else {
+            return false;
+        };
+        if crate::settings::get(cx).auto_fetch == 0
+            || self.auto_fetching.is_some()
+            || self.busy.is_some()
+            || self.fetched_at.is_some_and(|at| at.elapsed() < gap)
+        {
+            return false;
+        }
+        self.fetched_at = Some(Instant::now());
+        self.auto_fetching = Some(false);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { git::fetch(&repo) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let show = this.auto_fetching.take() == Some(true);
+                let failed_before = std::mem::replace(&mut this.auto_fetch_failed, result.is_err());
+                match result {
+                    Ok(_) if show => this.toast(Some(true), "Fetched all remotes", cx),
+                    Err(e) if show || !failed_before => this.toast(Some(false), e.to_string(), cx),
+                    _ => {}
+                }
+                // The watcher reloads the refs that the fetch moved.
+                if this._watcher.is_none() {
+                    this.reload(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        self.load_prs(cx);
+        true
     }
 
     /// Open pull requests from GitHub. Quietly empty for other hosts.
@@ -1639,7 +1710,13 @@ impl GitApp {
                     .child(
                         h_flex()
                             .gap_1()
-                            .child(Icon::new(IconName::RefreshCw).size(px(14.)))
+                            .child(if self.auto_fetching.is_some() {
+                                busy_spinner(muted).with_size(px(14.)).into_any_element()
+                            } else {
+                                Icon::new(IconName::RefreshCw)
+                                    .size(px(14.))
+                                    .into_any_element()
+                            })
                             .child("Fetch"),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.fetch(cx))),
