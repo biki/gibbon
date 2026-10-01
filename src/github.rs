@@ -22,6 +22,20 @@ pub struct PullRequest {
     pub cross_repo: bool,
 }
 
+/// A pull request that is not open any more: merged, or closed without a
+/// merge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClosedPr {
+    pub number: u64,
+    /// The head branch.
+    pub head: String,
+    /// The head commit when it closed.
+    pub head_oid: String,
+    /// The branch it went into, or was meant for.
+    pub base: String,
+    pub merged: bool,
+}
+
 /// Where a pull request stands: its checks, its review and its merge.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PrStatus {
@@ -166,6 +180,55 @@ pub fn list(repo: &Repo) -> Result<Vec<PullRequest>> {
             })
         })
         .collect())
+}
+
+/// The newest `limit` pull requests that are not open, merged or not, or
+/// with `head` only those of that branch. Pull requests from forks are left
+/// out: their head branches are not branches of this repository.
+pub fn closed(repo: &Repo, head: Option<&str>, limit: usize) -> Result<Vec<ClosedPr>> {
+    let limit = limit.to_string();
+    let mut args = vec![
+        "pr",
+        "list",
+        "--state",
+        // Merged ones too.
+        "closed",
+        "--limit",
+        limit.as_str(),
+        "--json",
+        "number,state,headRefName,headRefOid,baseRefName,isCrossRepository",
+    ];
+    if let Some(head) = head {
+        args.extend(["--head", head]);
+    }
+    parse_closed(&gh(repo, &args)?)
+}
+
+fn parse_closed(json: &str) -> Result<Vec<ClosedPr>> {
+    let items: Vec<Value> = serde_json::from_str(json)?;
+    Ok(items
+        .iter()
+        .filter(|v| !v["isCrossRepository"].as_bool().unwrap_or(false))
+        .filter_map(|v| {
+            Some(ClosedPr {
+                number: v["number"].as_u64()?,
+                head: v["headRefName"].as_str()?.to_string(),
+                head_oid: v["headRefOid"].as_str()?.to_string(),
+                base: v["baseRefName"].as_str().unwrap_or("").to_string(),
+                merged: v["state"].as_str() == Some("MERGED"),
+            })
+        })
+        .collect())
+}
+
+/// The commits of pull request `number`. GitHub lists 250 at most.
+pub fn commit_oids(repo: &Repo, number: u64) -> Result<Vec<String>> {
+    let number = number.to_string();
+    let out = gh(
+        repo,
+        &["pr", "view", number.as_str(), "--json", "commits", "--jq", ".commits[].oid"],
+    )?;
+    Ok(out.lines().map(str::to_string).collect())
 }
 
 /// The status of the open pull requests, by number. A separate call from
@@ -341,6 +404,24 @@ mod tests {
         assert_eq!(s.checks.summary(), "1 failed (lint) · 1 running · 1 passed");
         assert_eq!(s.review, Review::ChangesRequested);
         assert!(s.conflicts && !s.behind);
+    }
+
+    #[test]
+    fn closed_pull_requests_without_forks() {
+        let prs = parse_closed(
+            r#"[
+              {"number": 12, "state": "MERGED", "headRefName": "agent/a", "headRefOid": "aaa",
+               "baseRefName": "dev", "isCrossRepository": false},
+              {"number": 11, "state": "CLOSED", "headRefName": "agent/b", "headRefOid": "bbb",
+               "baseRefName": "dev", "isCrossRepository": false},
+              {"number": 10, "state": "MERGED", "headRefName": "agent/a", "headRefOid": "ccc",
+               "baseRefName": "dev", "isCrossRepository": true}
+            ]"#,
+        )
+        .unwrap();
+        assert_eq!(prs.len(), 2, "the fork's pull request is left out");
+        assert_eq!((prs[0].number, prs[0].merged), (12, true));
+        assert_eq!((prs[1].head.as_str(), prs[1].merged), ("agent/b", false));
     }
 
     #[test]

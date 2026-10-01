@@ -127,6 +127,37 @@ resets, merges, pulls, pushes, and the branch switches of each worktree.
 - A restore is a move too, so you can undo it the same way.
 - The moves since your last look have a dot, and the sidebar counts them.
 
+### Branch cleanup
+
+Agents leave a branch, and often a worktree, for each task. **Clean Up
+Branches…** lists the local branches that are merged into the base branch or
+whose remote branch is gone. It deletes the ones you choose, with their
+worktrees, in one step.
+
+- Click the broom on the **Branches** header, or choose **Clean Up
+  Branches…** in the branch menu of the title bar or in the command palette.
+- Each branch shows why it is in the list and what goes with it: its
+  worktree, the commits that the base branch does not have, and the changed
+  files of its worktree.
+- A squash merge makes a new commit, so the commits of the branch never
+  reach the base branch. For a branch whose remote branch is gone, Gibbon
+  asks GitHub (`gh`) for its pull requests. When a merged pull request has
+  the commits of the branch, the branch loses nothing, and the row says
+  **Merged as #12** (with the target branch for a stacked pull request).
+  Commits after that pull request are lost. A pull request that was closed
+  without a merge shows too.
+- Without GitHub or a merged pull request, Gibbon merges the branch into the
+  base branch in memory (`git merge-tree`). When that changes nothing, the
+  branch loses nothing. This works only while the base branch has not
+  changed the same lines since.
+- The branches that lose nothing are selected at the start. Select the
+  others yourself: Gibbon tells you how many commits and changed files you
+  lose.
+- Remote branches stay. The list never has the base branch, the fixed
+  branches (`main`, `develop`, …), or a branch that the main worktree, this
+  tab's worktree or a locked worktree has checked out.
+- A branch that gets new commits after the list opens stays.
+
 ### Branches, stashes and conflicts
 
 - The branch and remote lists show the base branch and the fixed branches
@@ -268,7 +299,7 @@ Environment variables for automated UI checks:
 | `GIBBON_REBASE=<sha>` | Open the rebase planner from that commit |
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
 | `GIBBON_REVIEW=<branch or ref>` | Review that branch against the base branch |
-| `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore` | Open that dialog (restore: for the newest move that dropped commits) |
+| `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore\|cleanup` | Open that dialog (restore: for the newest move that dropped commits) |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 

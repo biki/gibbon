@@ -84,9 +84,15 @@ Next steps:
 - **Ahead and behind counts against the base branch** — idea. The sidebar
   reads only `upstream:track`. A local agent branch has no upstream until the
   agent pushes it, so the sidebar shows no counts for it.
-- **Branch cleanup** — idea. List the branches that are merged into the base
-  branch or that lost their upstream. Delete them and their worktrees in one
-  action.
+- **Branch cleanup** — done. **Clean Up Branches…** lists the local
+  branches that are merged into the base branch or whose remote branch is
+  gone, and deletes the chosen ones with their worktrees. A gone branch with
+  a merged pull request on GitHub, or whose changes are in the base branch,
+  loses nothing and starts selected. Next: local branches that were picked
+  or squash-merged but never pushed (the checks run only for gone branches
+  now), a stacked pull request whose parent branch never reached the base
+  branch (it counts as merged now), and an undo for the deletes (see
+  **Deleted branches** above).
 - **Sort Changes by recent edits** — idea. Sort by modification time, and
   briefly highlight the files that changed in the last refresh.
 - **Blame and file history** — idea. Go from a line in the diff to the

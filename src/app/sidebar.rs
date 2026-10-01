@@ -17,6 +17,8 @@ enum Row {
         key: &'static str,
         label: &'static str,
         count: usize,
+        /// Branches that a cleanup lists, for the local branches.
+        stale: usize,
     },
     Branch(usize),
     /// Index into `stashes`.
@@ -37,7 +39,7 @@ const ROW_H: f32 = 28.;
 
 /// Branches that a branch section always shows, first, in this order. The
 /// base branch comes before them.
-const FIXED: [&str; 8] = [
+pub(super) const FIXED: [&str; 8] = [
     "main",
     "master",
     "trunk",
@@ -154,6 +156,7 @@ impl GitApp {
                     key: "worktrees",
                     label: "Worktrees",
                     count: matches.len(),
+                    stale: 0,
                 });
                 if !self.collapsed.contains("worktrees") {
                     rows.extend(matches.into_iter().map(Row::Worktree));
@@ -196,6 +199,7 @@ impl GitApp {
                     key,
                     label,
                     count: matches.len(),
+                    stale: 0,
                 });
                 if !self.collapsed.contains(key) {
                     let row = if key == "prs" { Row::Pr } else { Row::Stash };
@@ -218,6 +222,7 @@ impl GitApp {
                 key,
                 label,
                 count: matches.len(),
+                stale: if kind == RefKind::Local { self.stale_branches().len() } else { 0 },
             });
             if self.collapsed.contains(key) {
                 continue;
@@ -382,7 +387,7 @@ impl GitApp {
                     )
                     .into_any_element()
             }
-            &Row::Header { key, label, count } => {
+            &Row::Header { key, label, count, stale } => {
                 let collapsed = self.collapsed.contains(key);
                 h_flex()
                     .id(("side-head", ix))
@@ -404,6 +409,29 @@ impl GitApp {
                         .size(px(12.)),
                     )
                     .child(div().flex_1().child(label.to_uppercase()))
+                    .when(stale > 0, |d| {
+                        d.child(
+                            div()
+                                .id("clean-up")
+                                .flex_none()
+                                .p(px(3.))
+                                .rounded(px(4.))
+                                .hover(|d| d.bg(t.colors.list_hover).text_color(t.colors.foreground))
+                                .child(Icon::new(IconName::Broom).size(px(13.)))
+                                .tooltip(move |window, cx| {
+                                    let tip = format!(
+                                        "Clean up {stale} merged or gone branch{}…",
+                                        if stale == 1 { "" } else { "es" }
+                                    );
+                                    gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    // Not a click on the header: that folds it.
+                                    cx.stop_propagation();
+                                    this.cleanup_dialog(window, cx);
+                                })),
+                        )
+                    })
                     .child(count.to_string())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.collapsed.remove(key) {
@@ -683,8 +711,10 @@ mod tests {
             refname,
             name: name.to_string(),
             kind,
+            sha: String::new(),
             ahead: 0,
             behind: 0,
+            gone: false,
             is_head,
         }
     }

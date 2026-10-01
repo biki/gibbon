@@ -29,7 +29,7 @@ use files::FileRow;
 use hover::hover_fill;
 use pane::{Memo, Part, keep};
 use crate::{
-    CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches,
+    CleanUpBranches, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, StashChanges, TogglePalette, Pull, Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches,
     ShowChanges, ShowHistory,
 };
 
@@ -111,6 +111,7 @@ const PR_TICK_IDLE: std::time::Duration = std::time::Duration::from_secs(300);
 mod activity;
 mod branches;
 mod changes;
+mod cleanup;
 mod palette;
 mod pulls;
 mod rebase;
@@ -167,6 +168,11 @@ pub struct GitApp {
     worktree_epoch: u64,
     /// The branch that others start from, a full ref name.
     base: Option<String>,
+    /// The local branches that `base` contains, full ref names.
+    merged: HashSet<String>,
+    /// The rows of the open cleanup dialog (see `cleanup`).
+    cleanup: Vec<cleanup::CleanupRow>,
+    cleanup_epoch: u64,
     stash_detail: Option<Rc<CommitDetail>>,
     stash_styles: FileStyles,
     stash_file: usize,
@@ -284,6 +290,9 @@ impl GitApp {
             worktree_info: HashMap::new(),
             worktree_epoch: 0,
             base: None,
+            merged: HashSet::new(),
+            cleanup: vec![],
+            cleanup_epoch: 0,
             stash_detail: None,
             stash_styles: FileStyles::default(),
             stash_file: 0,
@@ -400,7 +409,7 @@ impl GitApp {
         };
         cx.spawn(async move |this, cx| {
             let r = repo.clone();
-            let (head, branches, status, paused, stashes, worktrees, dirs) = cx
+            let (head, branches, status, paused, stashes, worktrees, merged, dirs) = cx
                 .background_executor()
                 .spawn(async move {
                     let worktrees = git::worktrees(&r).map(|list| {
@@ -408,6 +417,10 @@ impl GitApp {
                         let current = list.iter().position(|w| w.path == own);
                         (list, current, git::base_branch(&r))
                     });
+                    let merged = match &worktrees {
+                        Ok((_, _, Some(base))) => git::merged_branches(&r, base).unwrap_or_default(),
+                        _ => HashSet::new(),
+                    };
                     let dirs = git::git_dir(&r).map(|git_dir| {
                         let common = git::common_dir(&r).unwrap_or_else(|_| git_dir.clone());
                         (git_dir, common)
@@ -419,6 +432,7 @@ impl GitApp {
                         git::paused(&r),
                         git::stashes(&r),
                         worktrees,
+                        merged,
                         dirs,
                     )
                 })
@@ -446,6 +460,7 @@ impl GitApp {
                     this.current_worktree = current;
                     this.base = base;
                 }
+                this.merged = merged;
                 let others: Vec<PathBuf> = this
                     .worktrees
                     .iter()
@@ -1193,7 +1208,8 @@ impl GitApp {
     /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all|activity`,
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
     /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`, `GIBBON_REVIEW=<branch>`,
-    /// `GIBBON_DIALOG=new-branch|stash|palette|settings|restore`, `GIBBON_INSPECTOR=1`.
+    /// `GIBBON_DIALOG=new-branch|stash|palette|settings|restore|cleanup`,
+    /// `GIBBON_INSPECTOR=1`.
     pub fn apply_check_env(&mut self, cx: &mut Context<Self>) {
         let var = |k: &str| std::env::var(k).ok();
         if let Some(b) = var("GIBBON_BROWSE") {
@@ -1478,6 +1494,7 @@ impl GitApp {
             .dropdown_menu(move |mut menu, _, _| {
                 menu = menu
                     .menu("New Branch…", Box::new(NewBranch))
+                    .menu("Clean Up Branches…", Box::new(CleanUpBranches))
                     .separator()
                     .label("Switch branch")
                     .max_h(px(420.))
@@ -1630,8 +1647,12 @@ impl Render for GitApp {
         if std::mem::take(&mut self.check_inspector) {
             window.defer(cx, |window, cx| window.toggle_inspector(cx));
         }
-        // The restore dialog waits for the moves.
-        let waits = self.check_dialog.as_deref() == Some("restore") && self.moves.is_empty();
+        // The restore dialog waits for the moves, the cleanup for the refs.
+        let waits = match self.check_dialog.as_deref() {
+            Some("restore") => self.moves.is_empty(),
+            Some("cleanup") => !self.refs_loaded,
+            _ => false,
+        };
         if let Some(which) = self.check_dialog.take_if(|_| !waits) {
             match which.as_str() {
                 "new-branch" => self.new_branch_dialog(None, window, cx),
@@ -1639,6 +1660,7 @@ impl Render for GitApp {
                 "palette" => self.open_palette(window, cx),
                 "settings" => settings_ui::open_settings(window, cx),
                 "restore" => self.check_restore_dialog(window, cx),
+                "cleanup" => self.cleanup_dialog(window, cx),
                 _ => {}
             }
         }
@@ -1693,6 +1715,11 @@ impl Render for GitApp {
             .on_action(cx.listener(|this, _: &NewBranch, window, cx| {
                 if this.repo.is_some() {
                     this.new_branch_dialog(None, window, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CleanUpBranches, window, cx| {
+                if this.refs_loaded {
+                    this.cleanup_dialog(window, cx)
                 }
             }))
             .size_full()

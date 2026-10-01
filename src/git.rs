@@ -2,7 +2,7 @@
 //! credential helpers and SSH keys behave exactly as in the terminal.
 //! Everything here blocks; the UI calls it on the background executor.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -96,8 +96,13 @@ pub struct Branch {
     /// Short name, `main` or `origin/main`.
     pub name: String,
     pub kind: RefKind,
+    /// The commit it points at.
+    pub sha: String,
     pub ahead: u32,
     pub behind: u32,
+    /// It has an upstream, and the upstream is gone: someone deleted the
+    /// remote branch, often when its pull request merged.
+    pub gone: bool,
     pub is_head: bool,
 }
 
@@ -142,7 +147,7 @@ pub fn branches(repo: &Repo) -> Result<Vec<Branch>> {
     let out = repo.git(&[
         "for-each-ref",
         "--sort=-committerdate",
-        "--format=%(refname)%1f%(refname:short)%1f%(upstream:track,nobracket)%1f%(HEAD)",
+        "--format=%(refname)%1f%(refname:short)%1f%(upstream:track,nobracket)%1f%(HEAD)%1f%(objectname)",
         "refs/heads",
         "refs/remotes",
         "refs/tags",
@@ -150,7 +155,7 @@ pub fn branches(repo: &Repo) -> Result<Vec<Branch>> {
     let mut list = Vec::new();
     for line in out.lines() {
         let f: Vec<&str> = line.split('\x1f').collect();
-        if f.len() < 4 {
+        if f.len() < 5 {
             continue;
         }
         let refname = f[0].to_string();
@@ -178,8 +183,10 @@ pub fn branches(repo: &Repo) -> Result<Vec<Branch>> {
             refname,
             name: f[1].to_string(),
             kind,
+            sha: f[4].to_string(),
             ahead,
             behind,
+            gone: f[2].trim() == "gone",
             is_head: f[3] == "*",
         });
     }
@@ -1365,6 +1372,74 @@ pub fn delete_branch(repo: &Repo, name: &str, force: bool) -> Result<()> {
         .map(|_| ())
 }
 
+/// The local branches whose tips `base` contains, as full ref names: the
+/// branches that are merged into it.
+pub fn merged_branches(repo: &Repo, base: &str) -> Result<HashSet<String>> {
+    let merged = format!("--merged={base}");
+    Ok(repo
+        .git(&["for-each-ref", merged.as_str(), "--format=%(refname)", "refs/heads"])?
+        .lines()
+        .map(str::to_string)
+        .collect())
+}
+
+/// Whether the repository has the commit `oid`.
+pub fn has_commit(repo: &Repo, oid: &str) -> bool {
+    let spec = format!("{oid}^{{commit}}");
+    repo.git(&["cat-file", "-e", spec.as_str()]).is_ok()
+}
+
+/// Whether the commit `a` is `b` or one of its ancestors.
+pub fn is_ancestor(repo: &Repo, a: &str, b: &str) -> bool {
+    repo.git(&["merge-base", "--is-ancestor", a, b]).is_ok()
+}
+
+/// How many commits of `sha` the ref `base` does not have.
+pub fn commits_not_in(repo: &Repo, sha: &str, base: &str) -> Result<u32> {
+    let range = format!("{base}..{sha}");
+    let out = repo.git(&["rev-list", "--count", range.as_str()])?;
+    Ok(out.trim().parse()?)
+}
+
+/// Whether `base` has the changes of `sha` already: a merge of `sha` into
+/// `base` changes no file. That is so after a squash merge, a rebase or a
+/// cherry-pick, where `base` has other commits with the same changes. The
+/// merge runs in memory (Git 2.38 or later) and only writes trees that no
+/// ref points at. False on a conflict, and when unsure.
+pub fn changes_in(repo: &Repo, sha: &str, base: &str) -> bool {
+    let merged = repo.git(&["merge-tree", "--write-tree", base, sha]);
+    let base_tree = repo.git(&["rev-parse", format!("{base}^{{tree}}").as_str()]);
+    match (merged, base_tree) {
+        (Ok(m), Ok(b)) => m.lines().next().map(str::trim) == Some(b.trim()),
+        _ => false,
+    }
+}
+
+/// Delete the local branch `name` for a cleanup, after the worktree that
+/// has it checked out (with `force`, also when that worktree has changes).
+/// When the branch does not point at `sha` any more, nothing is deleted:
+/// a commit since the user saw the list is not lost.
+pub fn delete_stale_branch(
+    repo: &Repo,
+    name: &str,
+    sha: &str,
+    worktree: Option<(&Path, bool)>,
+) -> Result<()> {
+    let refname = format!("refs/heads/{name}");
+    let now = repo
+        .git(&["rev-parse", "-q", "--verify", refname.as_str()])
+        .map_err(|_| anyhow!("{name} is gone already."))?;
+    if now.trim() != sha {
+        bail!("{name} has new commits.");
+    }
+    if let Some((path, force)) = worktree {
+        remove_worktree(repo, path, force)?;
+    }
+    // Forced: a plain delete compares with HEAD or the upstream, and the
+    // caller compared with the base branch.
+    delete_branch(repo, name, true)
+}
+
 /// The remote and the branch name on it for a remote-tracking ref such as
 /// `refs/remotes/origin/feature/x`. Remote names can contain slashes, so the
 /// longest remote that matches wins.
@@ -2165,6 +2240,89 @@ mod tests {
         origin.0.git(&["branch", "-D", "gone"]).unwrap();
         delete_remote_branch(r, "refs/remotes/origin/gone").unwrap();
         assert!(remote_names(r).is_empty());
+    }
+
+    #[test]
+    fn merged_and_gone_branches_and_their_cleanup() {
+        let origin = temp_repo("cleanup-origin");
+        let t = temp_repo("cleanup");
+        let r = &t.0;
+        commit_file(r, "a.txt", "base", "base");
+        let url = origin.0.root.to_string_lossy().into_owned();
+        r.git(&["remote", "add", "origin", url.as_str()]).unwrap();
+        // merged: its commit is in main now.
+        r.git(&["switch", "-q", "-c", "merged"]).unwrap();
+        commit_file(r, "b.txt", "merged", "merged work");
+        r.git(&["switch", "-q", "main"]).unwrap();
+        r.git(&["merge", "-q", "--no-ff", "-m", "merge", "merged"]).unwrap();
+        // gone: pushed, then its remote branch was deleted (as GitHub does
+        // after a squash merge), so main does not have its commit.
+        r.git(&["switch", "-q", "-c", "gone"]).unwrap();
+        let gone_sha = commit_file(r, "c.txt", "gone", "gone work");
+        r.git(&["push", "-q", "-u", "origin", "gone"]).unwrap();
+        origin.0.git(&["branch", "-D", "gone"]).unwrap();
+        r.git(&["fetch", "-q", "--prune", "origin"]).unwrap();
+        // squashed: gone too, and main has its changes in another commit.
+        r.git(&["switch", "-q", "-c", "squashed", "main"]).unwrap();
+        let squashed_sha = commit_file(r, "e.txt", "squashed", "squashed work");
+        r.git(&["push", "-q", "-u", "origin", "squashed"]).unwrap();
+        r.git(&["switch", "-q", "main"]).unwrap();
+        r.git(&["merge", "-q", "--squash", "squashed"]).unwrap();
+        r.git(&["commit", "-q", "-m", "squash"]).unwrap();
+        origin.0.git(&["branch", "-D", "squashed"]).unwrap();
+        r.git(&["fetch", "-q", "--prune", "origin"]).unwrap();
+        // open: work that is not merged anywhere.
+        r.git(&["switch", "-q", "-c", "open", "main"]).unwrap();
+        commit_file(r, "d.txt", "open", "open work");
+        r.git(&["switch", "-q", "main"]).unwrap();
+
+        let list = branches(r).unwrap();
+        let get = |n: &str| list.iter().find(|b| b.name == n).unwrap().clone();
+        assert!(get("gone").gone);
+        assert!(!get("merged").gone && !get("open").gone && !get("main").gone);
+        assert_eq!(get("gone").sha, gone_sha);
+        let merged = merged_branches(r, "refs/heads/main").unwrap();
+        assert!(merged.contains("refs/heads/merged") && merged.contains("refs/heads/main"));
+        assert!(!merged.contains("refs/heads/gone") && !merged.contains("refs/heads/open"));
+        assert_eq!(commits_not_in(r, &gone_sha, "refs/heads/main").unwrap(), 1);
+        assert_eq!(commits_not_in(r, &get("merged").sha, "refs/heads/main").unwrap(), 0);
+        assert!(get("squashed").gone);
+        assert_eq!(commits_not_in(r, &squashed_sha, "refs/heads/main").unwrap(), 1);
+        assert!(changes_in(r, &squashed_sha, "refs/heads/main"));
+        assert!(has_commit(r, &squashed_sha) && !has_commit(r, &"0".repeat(40)));
+        assert!(is_ancestor(r, &get("merged").sha, "refs/heads/main"));
+        assert!(!is_ancestor(r, &gone_sha, "refs/heads/main"));
+        assert!(!changes_in(r, &gone_sha, "refs/heads/main"));
+        assert!(!changes_in(r, &get("open").sha, "refs/heads/main"));
+
+        // A branch with a worktree: the worktree goes first.
+        let wt_path = r.root.join("merged-wt");
+        let wt_arg = wt_path.to_string_lossy().into_owned();
+        r.git(&["worktree", "add", "-q", wt_arg.as_str(), "merged"]).unwrap();
+        delete_stale_branch(r, "merged", &get("merged").sha, Some((&wt_path, false))).unwrap();
+        assert!(!wt_path.exists());
+        assert_eq!(worktrees(r).unwrap().len(), 1);
+
+        // A branch that moved after the list loaded stays.
+        commit_file(r, "a.txt", "more", "main moves");
+        r.git(&["switch", "-q", "gone"]).unwrap();
+        commit_file(r, "c.txt", "late", "late work");
+        r.git(&["switch", "-q", "main"]).unwrap();
+        let err = delete_stale_branch(r, "gone", &gone_sha, None).unwrap_err();
+        assert!(err.to_string().contains("new commits"), "{err}");
+        let late = branches(r).unwrap().into_iter().find(|b| b.name == "gone").unwrap();
+        // Forced: git would refuse, as main does not have the commits.
+        delete_stale_branch(r, "gone", &late.sha, None).unwrap();
+        let names: Vec<String> = branches(r)
+            .unwrap()
+            .into_iter()
+            .filter(|b| b.kind == RefKind::Local)
+            .map(|b| b.name)
+            .collect();
+        assert_eq!(names.len(), 3);
+        assert!(names.contains(&"main".to_string()) && names.contains(&"open".to_string()));
+        let config = r.git(&["config", "--get-regexp", "^branch\\."]).unwrap_or_default();
+        assert!(!config.contains("branch.gone."), "{config}");
     }
 
     #[test]

@@ -146,6 +146,7 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                     action("Push", IconName::ArrowUpFromLine, Push),
                     action("Commit", IconName::GitCommitHorizontal, CommitChanges),
                     action("New Branch…", IconName::GitBranchPlus, NewBranch),
+                    action("Clean Up Branches…", IconName::Broom, CleanUpBranches),
                     action("Stash Changes…", IconName::Archive, StashChanges),
                     action("Show Changes", IconName::FilePen, ShowChanges),
                     action("Show History", IconName::GitCommitVertical, ShowHistory),
