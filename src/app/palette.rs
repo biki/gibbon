@@ -156,6 +156,7 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                 ]);
             }
             items.push(action("Open Repository…", IconName::FolderGit2, OpenRepo));
+            items.push(action("Clone Repository…", IconName::FolderDown, CloneRepo));
             items.push(action("Settings…", IconName::Settings, OpenSettings));
             CommandGroup::new().label("Actions").items(items)
         }

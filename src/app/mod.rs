@@ -27,9 +27,9 @@ use crate::git::{
 use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
 use crate::{
-    CleanUpBranches, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull, Push, Refresh,
-    SelectNext, SelectPrev, ShowActivity, ShowAllBranches, ShowChanges, ShowHistory, StashChanges,
-    TogglePalette,
+    CleanUpBranches, CloneRepo, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull,
+    Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches, ShowChanges, ShowHistory,
+    StashChanges, TogglePalette,
 };
 use files::FileRow;
 use hover::{Off as _, button, checkbox, hover_fill};
@@ -114,6 +114,7 @@ mod activity;
 mod branches;
 mod changes;
 mod cleanup;
+mod clone;
 mod diff;
 mod files;
 mod history;

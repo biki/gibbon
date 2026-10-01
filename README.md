@@ -40,6 +40,28 @@ behind the Zed editor.
   or **Clear** on the welcome screen, removes them from the list.
 - Close a tab with its **×**, a middle-click or <kbd>⌘</kbd><kbd>W</kbd>.
 
+### Clone
+
+**Clone Repository…** (<kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd>) clones a repository
+and opens it in a tab. It is in the **+** menu, the File menu, the command
+palette and on the welcome screen.
+
+- Paste a URL (HTTPS or SSH), type `owner/name` for a GitHub repository, or
+  choose one of your GitHub repositories. With the
+  [GitHub CLI](https://cli.github.com) signed in, the list shows up to 100
+  repositories that you own, work on or see in your organizations, the last
+  pushed first. Type to search it, then use <kbd>↑</kbd> <kbd>↓</kbd> and
+  <kbd>↵</kbd>, or double-click a row.
+- The clone goes into a folder with the name of the repository: in the
+  folder of your last clone, else in `~/Developer`, `~/Projects`, `~/Code` or
+  a similar folder, else in your home folder. Type another path, or choose
+  another folder.
+- While `gh` is signed in, a GitHub repository clones with `gh repo clone`:
+  private repositories need no other sign-in, and the clone of a fork gets
+  the `upstream` remote. Other repositories clone with `git clone`.
+- A bar shows the progress. **Stop** ends the clone, and Git deletes what it
+  downloaded.
+
 ### History and graph
 
 - A commit graph with branch, remote and tag badges, authors and dates.
@@ -216,7 +238,7 @@ Prerequisites:
   `rust-toolchain.toml`)
 - Xcode Command Line Tools
 - Optional: the [GitHub CLI](https://cli.github.com) (`brew install gh`) for
-  pull requests
+  pull requests and for the list of your repositories in Clone
 
 Run from source:
 
@@ -241,6 +263,7 @@ keychain has one, and ad hoc otherwise.
 | Command palette | <kbd>⌘</kbd><kbd>K</kbd> |
 | Settings | <kbd>⌘</kbd><kbd>,</kbd> |
 | Open repository (in a new tab) | <kbd>⌘</kbd><kbd>O</kbd> |
+| Clone repository | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> |
 | Close tab | <kbd>⌘</kbd><kbd>W</kbd> |
 | Previous / next tab | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>[</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>]</kbd>, or <kbd>⌃</kbd><kbd>⇧</kbd><kbd>⇥</kbd> / <kbd>⌃</kbd><kbd>⇥</kbd> |
 | Changes / History / All branches / Activity | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> / <kbd>⌘</kbd><kbd>4</kbd> |
@@ -302,7 +325,7 @@ Environment variables for automated UI checks:
 | `GIBBON_REBASE=<sha>` | Open the rebase planner from that commit |
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
 | `GIBBON_REVIEW=<branch or ref>` | Review that branch against the base branch |
-| `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore\|cleanup` | Open that dialog (restore: for the newest move that dropped commits) |
+| `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore\|cleanup\|clone` | Open that dialog (restore: for the newest move that dropped commits) |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 

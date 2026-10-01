@@ -2130,6 +2130,7 @@ dependencies = [
  "futures",
  "gpui-kit",
  "ignore",
+ "libc",
  "notify 8.2.0",
  "serde",
  "serde_json",

@@ -41,6 +41,8 @@ pub struct Settings {
     pub panes: BTreeMap<String, f32>,
     /// The commit detail shows the whole message, not only the subject.
     pub commit_body: bool,
+    /// The folder that the last clone went into.
+    pub clone_dir: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -57,6 +59,7 @@ impl Default for Settings {
             code_font: crate::fonts::DEFAULT_CODE.into(),
             panes: BTreeMap::new(),
             commit_body: false,
+            clone_dir: None,
         }
     }
 }

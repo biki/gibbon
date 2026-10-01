@@ -5,6 +5,7 @@ use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
 mod app;
+mod clone;
 mod fonts;
 mod git;
 mod github;
@@ -22,6 +23,7 @@ actions!(
         Quit,
         HideApp,
         OpenRepo,
+        CloneRepo,
         CloseTab,
         NextTab,
         PrevTab,
@@ -103,6 +105,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-h", HideApp, None),
         KeyBinding::new("cmd-o", OpenRepo, Some("Workspace")),
+        KeyBinding::new("cmd-shift-o", CloneRepo, Some("Workspace")),
         KeyBinding::new("cmd-w", CloseTab, Some("Workspace")),
         // ⇧⌘] and ⇧⌘[, by the typed character or by the key.
         KeyBinding::new("cmd-}", NextTab, Some("Workspace")),
@@ -142,6 +145,7 @@ fn install_menus(cx: &mut App) {
         ]),
         Menu::new("File").items([
             MenuItem::action("Open Repository…", OpenRepo),
+            MenuItem::action("Clone Repository…", CloneRepo),
             MenuItem::action("Close Tab", CloseTab),
         ]),
         Menu::new("View").items([

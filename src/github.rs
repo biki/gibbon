@@ -134,19 +134,99 @@ pub fn number_of(refname: &str) -> Option<u64> {
     refname.strip_prefix("refs/gibbon/pr/")?.parse().ok()
 }
 
-fn gh(repo: &Repo, args: &[&str]) -> Result<String> {
-    let out = Command::new("gh")
-        .current_dir(&repo.root)
-        .args(args)
+pub const NOT_INSTALLED: &str =
+    "The GitHub CLI (gh) is not installed. Install it with `brew install gh`.";
+
+fn command(args: &[&str]) -> Command {
+    let mut cmd = Command::new("gh");
+    cmd.args(args)
         .env("GH_PROMPT_DISABLED", "1")
         .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
+        .stdin(Stdio::null());
+    cmd
+}
+
+fn gh(repo: &Repo, args: &[&str]) -> Result<String> {
+    let out = command(args)
+        .current_dir(&repo.root)
         .output()
-        .context("The GitHub CLI (gh) is not installed. Install it with `brew install gh`.")?;
+        .context(NOT_INSTALLED)?;
     if !out.status.success() {
         bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// A GitHub repository that the signed-in user can clone.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoteRepo {
+    /// `owner/name`.
+    pub name: String,
+    pub description: String,
+    pub private: bool,
+    pub fork: bool,
+    pub archived: bool,
+    /// When someone last pushed to it, as a Unix time.
+    pub pushed: i64,
+}
+
+/// Why `gh` lists no repositories.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GhError {
+    Missing,
+    SignedOut,
+    Failed(String),
+}
+
+/// The signed-in user, and the last pushed 100 repositories that they own,
+/// work on or see in their organizations.
+pub fn your_repos() -> Result<(String, Vec<RemoteRepo>), GhError> {
+    // Without `affiliations`, GitHub leaves out the repositories of the
+    // organizations.
+    const QUERY: &str = "query { viewer { login repositories(first: 100, \
+        affiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER], \
+        ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER], \
+        orderBy: {field: PUSHED_AT, direction: DESC}) { nodes { \
+        nameWithOwner description isPrivate isFork isArchived pushedAt } } } }";
+    let query = format!("query={QUERY}");
+    let out = command(&["api", "graphql", "-f", &query])
+        .output()
+        .map_err(|_| GhError::Missing)?;
+    match out.status.code() {
+        Some(0) => {}
+        // gh's exit code when no account is signed in.
+        Some(4) => return Err(GhError::SignedOut),
+        _ => {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(GhError::Failed(err));
+        }
+    }
+    parse_repos(&String::from_utf8_lossy(&out.stdout)).map_err(|e| GhError::Failed(e.to_string()))
+}
+
+fn parse_repos(json: &str) -> Result<(String, Vec<RemoteRepo>)> {
+    let v: Value = serde_json::from_str(json)?;
+    let viewer = &v["data"]["viewer"];
+    let login = viewer["login"].as_str().unwrap_or("").to_string();
+    let nodes = viewer["repositories"]["nodes"].as_array();
+    let repos = nodes
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            Some(RemoteRepo {
+                name: r["nameWithOwner"].as_str()?.to_string(),
+                description: r["description"].as_str().unwrap_or("").to_string(),
+                private: r["isPrivate"].as_bool().unwrap_or(false),
+                fork: r["isFork"].as_bool().unwrap_or(false),
+                archived: r["isArchived"].as_bool().unwrap_or(false),
+                pushed: r["pushedAt"]
+                    .as_str()
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                    .map_or(0, |t| t.timestamp()),
+            })
+        })
+        .collect();
+    Ok((login, repos))
 }
 
 /// Open pull requests of the repository's GitHub project, newest first.
@@ -437,6 +517,27 @@ mod tests {
         assert_eq!(prs.len(), 2, "the fork's pull request is left out");
         assert_eq!((prs[0].number, prs[0].merged), (12, true));
         assert_eq!((prs[1].head.as_str(), prs[1].merged), ("agent/b", false));
+    }
+
+    #[test]
+    fn repositories_of_the_viewer() {
+        let (login, repos) = parse_repos(
+            r#"{"data": {"viewer": {"login": "biki", "repositories": {"nodes": [
+              {"nameWithOwner": "biki/gibbon", "description": "A Git client", "isPrivate": false,
+               "isFork": false, "isArchived": false, "pushedAt": "2026-10-01T07:20:47Z"},
+              {"nameWithOwner": "acme/tools", "description": null, "isPrivate": true,
+               "isFork": true, "isArchived": true, "pushedAt": null}
+            ]}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(login, "biki");
+        assert_eq!(repos.len(), 2);
+        assert_eq!(
+            (repos[0].name.as_str(), repos[0].pushed),
+            ("biki/gibbon", 1_790_839_247)
+        );
+        assert_eq!(repos[1].description, "");
+        assert!(repos[1].private && repos[1].fork && repos[1].archived);
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use gpui_kit::component::menu::ContextMenuExt as _;
 
+use super::clone::{CloneDialog, Cloned};
 use super::*;
 use crate::{CloseTab, NextTab, PrevTab};
 
@@ -78,6 +79,11 @@ pub struct Workspace {
     /// The tab that the pointer drags, and where the pointer took it, from
     /// the tab's left edge. Render clears it when no drag runs.
     dragged: Option<(PathBuf, Pixels)>,
+    /// The open Clone dialog. It goes when the dialog closes.
+    clone_dialog: WeakEntity<CloneDialog>,
+    clone_sub: Option<Subscription>,
+    /// Open the Clone dialog on the first frame (UI checks).
+    check_clone: bool,
 }
 
 impl Workspace {
@@ -92,6 +98,9 @@ impl Workspace {
             save_task: None,
             tab_bounds: vec![],
             dragged: None,
+            clone_dialog: WeakEntity::new_invalid(),
+            clone_sub: None,
+            check_clone: false,
         }
     }
 
@@ -131,6 +140,7 @@ impl Workspace {
         if let Some(app) = self.active_app().cloned() {
             app.update(cx, |app, cx| app.apply_check_env(cx));
         }
+        self.check_clone = std::env::var("GIBBON_DIALOG").as_deref() == Ok("clone");
     }
 
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {
@@ -195,6 +205,24 @@ impl Workspace {
             let _ = this.update_in(cx, |this, window, cx| this.open(path, window, cx));
         })
         .detach();
+    }
+
+    /// Open the Clone dialog, or keep the open one. A clone that is done
+    /// opens in a tab.
+    fn open_clone(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.clone_dialog.upgrade().is_some() {
+            return;
+        }
+        let dialog = cx.new(|cx| CloneDialog::new(window, cx));
+        let sub = cx.subscribe_in(&dialog, window, |this, _, done: &Cloned, window, cx| {
+            this.open(done.path.clone(), window, cx);
+            let msg = format!("Cloned {}", done.name);
+            this.toasts.push((Some(true), msg));
+            cx.notify();
+        });
+        self.clone_sub = Some(sub);
+        self.clone_dialog = dialog.downgrade();
+        CloneDialog::open(dialog, window, cx);
     }
 
     fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -557,6 +585,7 @@ impl Workspace {
                         .separator();
                 }
                 menu.menu("Open Repository…", Box::new(OpenRepo))
+                    .menu("Clone Repository…", Box::new(CloneRepo))
             })
     }
 
@@ -583,13 +612,24 @@ impl Workspace {
             .child(
                 div()
                     .text_color(muted)
-                    .child("Choose a folder that contains a Git repository."),
+                    .child("Choose a folder that contains a Git repository, or clone one."),
             )
             .child(
-                button("welcome-open")
-                    .primary()
-                    .label("Open Repository…")
-                    .on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))),
+                h_flex()
+                    .gap_2()
+                    .child(
+                        button("welcome-open")
+                            .primary()
+                            .label("Open Repository…")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.prompt_open(window, cx)),
+                            ),
+                    )
+                    .child(
+                        button("welcome-clone").label("Clone Repository…").on_click(
+                            cx.listener(|this, _, window, cx| this.open_clone(window, cx)),
+                        ),
+                    ),
             )
             .when(!self.recent.is_empty(), |d| {
                 d.child(
@@ -768,6 +808,9 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.show_toasts(window, cx);
         self.persist_session(window, cx);
+        if std::mem::take(&mut self.check_clone) {
+            self.open_clone(window, cx);
+        }
         // The window draws a frame when a drag ends, so the dragged tab
         // shows again.
         if !cx.has_active_drag() {
@@ -787,6 +830,7 @@ impl Render for Workspace {
             .key_context("Workspace")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &OpenRepo, window, cx| this.prompt_open(window, cx)))
+            .on_action(cx.listener(|this, _: &CloneRepo, window, cx| this.open_clone(window, cx)))
             .on_action(
                 cx.listener(|this, _: &CloseTab, window, cx| this.close(this.active, window, cx)),
             )
