@@ -377,11 +377,15 @@ impl GitApp {
                 let adds: u32 = d.files.iter().map(|f| f.additions).sum();
                 let dels: u32 = d.files.iter().map(|f| f.deletions).sum();
                 let mut s = format!(
-                    "{} commit{} · {n} file{} · +{adds} −{dels}",
+                    "{} commit{} · {n} file{}",
                     ui.commits,
                     history::plural(ui.commits),
                     history::plural(n)
                 );
+                // Git counts no lines in a binary file.
+                if d.files.iter().any(|f| !f.binary) {
+                    s.push_str(&format!(" · +{adds} −{dels}"));
+                }
                 if ui.worktree.is_some() {
                     s.push_str(" · with uncommitted changes");
                 }

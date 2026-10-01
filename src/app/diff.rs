@@ -381,18 +381,21 @@ impl GitApp {
                     .font_weight(FontWeight::MEDIUM)
                     .child(title),
             )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(t.colors.green)
-                    .child(format!("+{}", file.additions)),
-            )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(t.colors.red)
-                    .child(format!("−{}", file.deletions)),
-            )
+            // Git counts no lines in a binary file.
+            .when(!file.binary, |d| {
+                d.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t.colors.green)
+                        .child(format!("+{}", file.additions)),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t.colors.red)
+                        .child(format!("−{}", file.deletions)),
+                )
+            })
             .when_some(extra, |d, e| d.child(div().ml_2().child(e)))
             .child(
                 segmented(
@@ -927,20 +930,23 @@ pub(super) fn file_row(
         FileChange::Modified => git::Change::Modified,
         FileChange::Renamed => git::Change::Renamed,
     };
-    let counts = h_flex()
-        .gap_1p5()
-        .text_size(px(11.))
-        .child(
-            div()
-                .text_color(cx.theme().colors.green)
-                .child(format!("+{}", f.additions)),
-        )
-        .child(
-            div()
-                .text_color(cx.theme().colors.red)
-                .child(format!("−{}", f.deletions)),
-        );
-    path_row(&f.path, letter, selected, None, depth, id, cx).child(counts)
+    // Git counts no lines in a binary file.
+    let counts = (!f.binary).then(|| {
+        h_flex()
+            .gap_1p5()
+            .text_size(px(11.))
+            .child(
+                div()
+                    .text_color(cx.theme().colors.green)
+                    .child(format!("+{}", f.additions)),
+            )
+            .child(
+                div()
+                    .text_color(cx.theme().colors.red)
+                    .child(format!("−{}", f.deletions)),
+            )
+    });
+    path_row(&f.path, letter, selected, None, depth, id, cx).children(counts)
 }
 
 /// Name first, folder after it in muted text. At a `depth` of a tree, the

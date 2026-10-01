@@ -289,6 +289,8 @@ pub(super) fn files_bar(files: &[FileDiff], cx: &App) -> Div {
     let t = cx.theme();
     let adds: u32 = files.iter().map(|f| f.additions).sum();
     let dels: u32 = files.iter().map(|f| f.deletions).sum();
+    // Git counts no lines in a binary file.
+    let counted = files.iter().any(|f| !f.binary);
     h_flex()
         .flex_none()
         .h(px(30.))
@@ -301,8 +303,10 @@ pub(super) fn files_bar(files: &[FileDiff], cx: &App) -> Div {
             files.len(),
             history::plural(files.len())
         )))
-        .child(div().text_color(t.colors.green).child(format!("+{adds}")))
-        .child(div().text_color(t.colors.red).child(format!("−{dels}")))
+        .when(counted, |d| {
+            d.child(div().text_color(t.colors.green).child(format!("+{adds}")))
+                .child(div().text_color(t.colors.red).child(format!("−{dels}")))
+        })
         .child(view_buttons(cx))
 }
 
