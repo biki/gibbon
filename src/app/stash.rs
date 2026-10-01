@@ -172,30 +172,30 @@ impl GitApp {
                     ))),
             )
             .child(
-                Button::new("stash-drop")
+                button("stash-drop")
                     .ghost()
                     .small()
                     .label("Drop…")
-                    .disabled(busy)
+                    .off(busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.drop_stash_dialog(index, window, cx)
                     })),
             )
             .child(
-                Button::new("stash-apply")
+                button("stash-apply")
                     .small()
                     .label("Apply")
                     .tooltip("Apply the changes and keep the stash")
-                    .disabled(busy)
+                    .off(busy)
                     .on_click(cx.listener(move |this, _, _, cx| this.stash_op(index, false, cx))),
             )
             .child(
-                Button::new("stash-pop")
+                button("stash-pop")
                     .primary()
                     .small()
                     .label("Pop")
                     .tooltip("Apply the changes and delete the stash")
-                    .disabled(busy)
+                    .off(busy)
                     .on_click(cx.listener(move |this, _, _, cx| this.stash_op(index, true, cx))),
             );
         if self.stash_detail.is_none() {

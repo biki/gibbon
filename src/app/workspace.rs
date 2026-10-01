@@ -441,7 +441,7 @@ impl Workspace {
                         d.invisible().group_hover("tab", |s| s.visible())
                     })
                     .child(
-                        Button::new(("tab-close", ix))
+                        button(("tab-close", ix))
                             .ghost()
                             .xsmall()
                             .icon(IconName::X)
@@ -526,7 +526,7 @@ impl Workspace {
             .filter(|p| !self.tabs.iter().any(|t| &t.repo.root == *p))
             .cloned()
             .collect();
-        Button::new("tab-add")
+        button("tab-add")
             .ghost()
             .xsmall()
             .icon(IconName::Plus)
@@ -586,7 +586,7 @@ impl Workspace {
                     .child("Choose a folder that contains a Git repository."),
             )
             .child(
-                Button::new("welcome-open")
+                button("welcome-open")
                     .primary()
                     .label("Open Repository…")
                     .on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))),
@@ -609,7 +609,7 @@ impl Workspace {
                                         .child("RECENT"),
                                 )
                                 .child(
-                                    Button::new("recent-clear")
+                                    button("recent-clear")
                                         .ghost()
                                         .xsmall()
                                         .label("Clear")

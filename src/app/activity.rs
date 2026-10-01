@@ -358,7 +358,7 @@ impl GitApp {
                     |d| {
                         let (mv, this) = (mv.clone(), this.clone());
                         d.child(
-                            Button::new(("restore", ix))
+                            button(("restore", ix))
                                 .xsmall()
                                 .child(
                                     h_flex()

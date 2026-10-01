@@ -254,7 +254,7 @@ impl GitApp {
                         }),
                 )
                 .child(
-                    Button::new("back-to-head")
+                    button("back-to-head")
                         .ghost()
                         .small()
                         .label(format!("Back to {head}"))
@@ -264,7 +264,7 @@ impl GitApp {
                 )
                 .child({
                     let (target, pr) = (target.to_string(), pr.cloned());
-                    Button::new("review-branch")
+                    button("review-branch")
                         .small()
                         .child(
                             h_flex()
@@ -279,10 +279,10 @@ impl GitApp {
                         }))
                 })
                 .child(
-                    Button::new("pick")
+                    button("pick")
                         .primary()
                         .small()
-                        .disabled(chosen == 0 || self.busy.is_some())
+                        .off(chosen == 0 || self.busy.is_some())
                         .child(
                             h_flex()
                                 .gap_1p5()
@@ -349,6 +349,7 @@ impl GitApp {
             .pr_3()
             .gap_3()
             .bg(row_bg)
+            .cursor_pointer()
             .when(!selected, |d| {
                 d.child(hover_fill(t.colors.list_hover, px(0.)))
             })

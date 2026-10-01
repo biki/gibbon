@@ -319,7 +319,7 @@ impl GitApp {
                     .child(format!("{n} line{} selected", history::plural(n))),
             )
             .child(
-                Button::new("sel-clear")
+                button("sel-clear")
                     .ghost()
                     .xsmall()
                     .label("Clear")
@@ -330,7 +330,7 @@ impl GitApp {
             )
             .when(!staged, |d| {
                 d.child(
-                    Button::new("sel-discard")
+                    button("sel-discard")
                         .xsmall()
                         .danger()
                         .label("Discard lines")
@@ -341,7 +341,7 @@ impl GitApp {
                 )
             })
             .child(
-                Button::new("sel-stage")
+                button("sel-stage")
                     .xsmall()
                     .primary()
                     .label(if staged {
@@ -390,7 +390,7 @@ impl GitApp {
             .when(partial, |d| {
                 d.when(!staged, |d| {
                     d.child(
-                        Button::new(("hunk-discard", i))
+                        button(("hunk-discard", i))
                             .font_family(crate::theme::ui_font(cx))
                             .ghost()
                             .xsmall()
@@ -404,7 +404,7 @@ impl GitApp {
                     )
                 })
                 .child(
-                    Button::new(("hunk-stage", i))
+                    button(("hunk-stage", i))
                         .font_family(crate::theme::ui_font(cx))
                         .ghost()
                         .xsmall()

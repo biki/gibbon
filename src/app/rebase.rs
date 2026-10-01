@@ -139,7 +139,7 @@ impl GitApp {
                     ))),
             )
             .child(
-                Button::new("rebase-cancel")
+                button("rebase-cancel")
                     .ghost()
                     .small()
                     .label("Cancel")
@@ -150,11 +150,11 @@ impl GitApp {
                     })),
             )
             .child(
-                Button::new("rebase-run")
+                button("rebase-run")
                     .primary()
                     .small()
                     .label("Start Rebase")
-                    .disabled(problem.is_some() || self.busy.is_some())
+                    .off(problem.is_some() || self.busy.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.run_rebase(cx))),
             );
         let notes = v_flex()
@@ -211,7 +211,7 @@ impl GitApp {
             RebaseAction::Drop => t.colors.red,
         };
         let this = cx.entity();
-        let picker = Button::new(("action", i))
+        let picker = button(("action", i))
             .small()
             .outline()
             .w(px(96.))
@@ -291,21 +291,21 @@ impl GitApp {
             )
             .child(text)
             .child(
-                Button::new(("up", i))
+                button(("up", i))
                     .ghost()
                     .xsmall()
                     .icon(IconName::ArrowUp)
                     .tooltip("Move up")
-                    .disabled(i == 0)
+                    .off(i == 0)
                     .on_click(cx.listener(move |this, _, _, cx| this.move_step(i, true, cx))),
             )
             .child(
-                Button::new(("down", i))
+                button(("down", i))
                     .ghost()
                     .xsmall()
                     .icon(IconName::ArrowDown)
                     .tooltip("Move down")
-                    .disabled(i + 1 == n)
+                    .off(i + 1 == n)
                     .on_click(cx.listener(move |this, _, _, cx| this.move_step(i, false, cx))),
             )
             .into_any_element()

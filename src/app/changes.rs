@@ -130,10 +130,10 @@ impl GitApp {
             .border_color(border)
             .child(Textarea::new(&self.message).h(px(96.)))
             .child(
-                Button::new("commit")
+                button("commit")
                     .primary()
                     .w_full()
-                    .disabled(staged == 0 || self.busy.is_some())
+                    .off(staged == 0 || self.busy.is_some())
                     .child(
                         h_flex()
                             .gap_1p5()
@@ -224,11 +224,11 @@ impl GitApp {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new("pick-continue")
+                        button("pick-continue")
                             .primary()
                             .small()
                             .label("Continue")
-                            .disabled(conflicts > 0 || self.busy.is_some())
+                            .off(conflicts > 0 || self.busy.is_some())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.run_op(
                                     "Continuing…",
@@ -240,11 +240,11 @@ impl GitApp {
                     )
                     .when(p.can_skip(), |d| {
                         d.child(
-                            Button::new("paused-skip")
+                            button("paused-skip")
                                 .small()
                                 .label("Skip")
                                 .tooltip("Leave this commit out and go on")
-                                .disabled(self.busy.is_some())
+                                .off(self.busy.is_some())
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.run_op(
                                         "Skipping…",
@@ -256,10 +256,10 @@ impl GitApp {
                         )
                     })
                     .child(
-                        Button::new("pick-abort")
+                        button("pick-abort")
                             .small()
                             .label("Abort")
-                            .disabled(self.busy.is_some())
+                            .off(self.busy.is_some())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.run_op(
                                     "Aborting…",
@@ -294,7 +294,7 @@ impl GitApp {
                 }))
                 .when(!staged, |d| {
                     d.child(
-                        Button::new(("stash", ix))
+                        button(("stash", ix))
                             .ghost()
                             .xsmall()
                             .label("Stash")
@@ -304,7 +304,7 @@ impl GitApp {
                             ),
                     )
                     .child(
-                        Button::new(("discard-all", ix))
+                        button(("discard-all", ix))
                             .ghost()
                             .xsmall()
                             .label("Discard all")
@@ -320,7 +320,7 @@ impl GitApp {
                     )
                 })
                 .child(
-                    Button::new(("stage-all", ix))
+                    button(("stage-all", ix))
                         .ghost()
                         .xsmall()
                         .label(if staged { "Unstage all" } else { "Stage all" })
@@ -357,7 +357,7 @@ impl GitApp {
                 let this = cx.entity();
                 diff::path_row(&e.path, change, selected, depth, ("change", ix), cx)
                     .child(
-                        Button::new(("stage", ix))
+                        button(("stage", ix))
                             .ghost()
                             .xsmall()
                             .icon(if staged {

@@ -1,10 +1,19 @@
-//! Hover highlights that show at once and fade out. A `.hover()` style in
-//! GPUI switches at once both ways, so rows paint their highlight with
-//! `hover_fill`.
+//! What the pointer shows: hover highlights that show at once and fade
+//! out, and the pointing hand over controls.
+//!
+//! A `.hover()` style in GPUI switches at once both ways, so rows paint
+//! their highlight with `hover_fill`.
+//!
+//! The kit gives its buttons the arrow, and its checkboxes the cursor of the
+//! element under them. Make them with `button` and `checkbox` to show the
+//! pointing hand, and turn them off with `off`, not `disabled`.
 
 use std::time::Duration;
 
 use gpui_kit::base::motion::{self, Transition};
+use gpui_kit::component::Disableable;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::*;
 
 /// How long a highlight takes to fade out. It shows without a fade: a fade
@@ -49,3 +58,25 @@ pub(super) fn hover_fill(color: Hsla, radius: Pixels) -> impl IntoElement {
     .absolute()
     .inset_0()
 }
+
+/// A kit button that shows the pointing hand.
+pub(super) fn button(id: impl Into<ElementId>) -> Button {
+    Button::new(id).cursor_pointer()
+}
+
+/// A kit checkbox that shows the pointing hand.
+pub(super) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
+    Checkbox::new(id).cursor_pointer()
+}
+
+pub(super) trait Off: Disableable + Styled + Sized {
+    /// Disable the control while `off`, and show the arrow on it. The kit
+    /// keeps our cursor in its disabled style, so `disabled` alone keeps the
+    /// pointing hand.
+    fn off(self, off: bool) -> Self {
+        let this = self.disabled(off);
+        if off { this.cursor_default() } else { this }
+    }
+}
+
+impl<T: Disableable + Styled> Off for T {}

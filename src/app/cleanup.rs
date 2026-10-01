@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::spinner::Spinner;
 
 use crate::github::{self, ClosedPr};
@@ -378,10 +377,10 @@ impl GitApp {
                 .border_color(t.colors.border)
                 .child(
                     div().px_3().py_2().bg(t.colors.muted).child(
-                        Checkbox::new("cleanup-all")
+                        checkbox("cleanup-all")
                             .small()
                             .checked(all)
-                            .disabled(checking > 0)
+                            .off(checking > 0)
                             .child(
                                 div()
                                     .text_size(px(12.))
@@ -398,11 +397,11 @@ impl GitApp {
                 let toggle = this.clone();
                 list = list.child(
                     div().px_3().py_2().border_t_1().border_color(t.colors.border).child(
-                        Checkbox::new(("cleanup", i))
+                        checkbox(("cleanup", i))
                             .small()
                             .accessibility_label(r.name.clone())
                             .checked(r.selected)
-                            .disabled(r.checking)
+                            .off(r.checking)
                             .child(
                                 div()
                                     .text_size(px(13.))
@@ -439,18 +438,18 @@ impl GitApp {
                         .justify_end()
                         .gap_2()
                         .child(
-                            Button::new("dialog-cancel")
+                            button("dialog-cancel")
                                 .label("Cancel")
                                 .on_click(|_, window, cx| window.close_dialog(cx)),
                         )
                         .child(
-                            Button::new("dialog-ok")
+                            button("dialog-ok")
                                 .with_variant(ButtonVariant::Danger)
                                 .label(match n {
                                     0 => "Delete".to_string(),
                                     n => format!("Delete {n} {}", branches_word(n)),
                                 })
-                                .disabled(n == 0 || checking > 0)
+                                .off(n == 0 || checking > 0)
                                 .on_click(move |_, window, cx| {
                                     window.close_dialog(cx);
                                     run.update(cx, |app, cx| app.run_cleanup(cx));

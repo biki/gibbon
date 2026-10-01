@@ -5,8 +5,6 @@
 
 use std::ops::Range;
 
-use gpui_kit::component::checkbox::Checkbox;
-
 use super::*;
 
 pub(super) struct ReviewUi {
@@ -337,7 +335,7 @@ impl GitApp {
     pub(super) fn viewed_check(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let ix = self.review.as_ref()?.file;
         Some(
-            Checkbox::new("diff-viewed")
+            checkbox("diff-viewed")
                 .label("Viewed")
                 .small()
                 .checked(self.is_viewed(ix))
@@ -448,7 +446,7 @@ impl GitApp {
             )
             .when_some(uncommitted, |d, (changed, on)| {
                 d.child(
-                    Checkbox::new("review-uncommitted")
+                    checkbox("review-uncommitted")
                         .small()
                         .label(format!("Uncommitted changes ({changed})"))
                         .checked(on)
@@ -459,7 +457,7 @@ impl GitApp {
                 )
             })
             .child(
-                Button::new("review-browse")
+                button("review-browse")
                     .ghost()
                     .small()
                     .label("Browse Commits")
@@ -534,7 +532,7 @@ impl GitApp {
             .map(|b| (b.refname.clone(), b.name.clone()))
             .collect();
         let this = cx.entity();
-        Button::new("review-base")
+        button("review-base")
             .ghost()
             .small()
             .child(
@@ -608,7 +606,7 @@ impl GitApp {
                                         cx.stop_propagation()
                                     })
                                     .child(
-                                        Checkbox::new(("viewed", ix))
+                                        checkbox(("viewed", ix))
                                             .small()
                                             .checked(viewed)
                                             .tooltip("Viewed")

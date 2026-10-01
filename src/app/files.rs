@@ -256,7 +256,7 @@ pub(super) fn view_buttons(cx: &App) -> impl IntoElement {
         .flex_none()
         .gap_1()
         .child(
-            Button::new("files-sort")
+            button("files-sort")
                 .ghost()
                 .small()
                 .icon(Icon::new(if desc {

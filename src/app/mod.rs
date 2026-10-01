@@ -7,15 +7,15 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::component::WindowExt as _;
-use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::button::{ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::theme::ActiveTheme as _;
 use gpui_kit::component::{
-    Disableable as _, Icon, ResizablePanel, ResizablePanelGroup, Sizable as _, TitleBar, h_flex,
-    h_resizable, resizable_panel, v_flex, v_resizable,
+    Icon, ResizablePanel, ResizablePanelGroup, Sizable as _, TitleBar, h_flex, h_resizable,
+    resizable_panel, v_flex, v_resizable,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -32,7 +32,7 @@ use crate::{
     TogglePalette,
 };
 use files::FileRow;
-use hover::hover_fill;
+use hover::{Off as _, button, checkbox, hover_fill};
 use pane::{Memo, Part, keep};
 
 type IconName = gpui_kit::assets::IconName;
@@ -1514,10 +1514,10 @@ impl GitApp {
             .cloned()
             .collect();
         let switch_this = this.clone();
-        let branch_button = Button::new("title-branch")
+        let branch_button = button("title-branch")
             .ghost()
             .small()
-            .disabled(self.repo.is_none())
+            .off(self.repo.is_none())
             .child(
                 h_flex()
                     .gap_1p5()
@@ -1584,10 +1584,10 @@ impl GitApp {
             .child(branch_button)
             .child(div().w(px(1.)).h(px(16.)).mx_1().bg(t.colors.border))
             .child(
-                Button::new("fetch")
+                button("fetch")
                     .ghost()
                     .small()
-                    .disabled(no_repo)
+                    .off(no_repo)
                     .tooltip("Fetch all remotes  ⇧⌘F")
                     .child(
                         h_flex()
@@ -1598,10 +1598,10 @@ impl GitApp {
                     .on_click(cx.listener(|this, _, _, cx| this.fetch(cx))),
             )
             .child(
-                Button::new("pull")
+                button("pull")
                     .ghost()
                     .small()
-                    .disabled(no_repo)
+                    .off(no_repo)
                     .tooltip("Pull  ⇧⌘P")
                     .child(
                         h_flex()
@@ -1613,10 +1613,10 @@ impl GitApp {
                     .on_click(cx.listener(|this, _, _, cx| this.pull(cx))),
             )
             .child(
-                Button::new("push")
+                button("push")
                     .ghost()
                     .small()
-                    .disabled(no_repo)
+                    .off(no_repo)
                     .tooltip("Push  ⌘P")
                     .child(
                         h_flex()
@@ -1897,12 +1897,12 @@ fn dialog_footer(
         .justify_end()
         .gap_2()
         .child(
-            Button::new("dialog-cancel")
+            button("dialog-cancel")
                 .label("Cancel")
                 .on_click(|_, window, cx| window.close_dialog(cx)),
         )
         .child(
-            Button::new("dialog-ok")
+            button("dialog-ok")
                 .with_variant(variant)
                 .label(ok)
                 .on_click(move |_, window, cx| {
