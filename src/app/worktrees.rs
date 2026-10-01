@@ -3,8 +3,8 @@
 //! rows show their work while it happens.
 
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::tooltip::Tooltip;
 
+use super::pulls::lines_tooltip;
 use super::sidebar::side_row;
 use super::*;
 
@@ -83,6 +83,13 @@ impl GitApp {
             .when(w.locked, |d| {
                 d.child(Icon::new(IconName::Lock).size(px(11.)).text_color(muted))
             })
+            // The checks of the branch's pull request.
+            .when_some(
+                w.branch_name()
+                    .and_then(|b| self.pr_of_branch(b))
+                    .and_then(|p| self.pr_checks_icon(p.number, cx)),
+                |d, icon| d.child(icon),
+            )
             .when(changed > 0, |d| {
                 d.child(
                     h_flex()
@@ -106,20 +113,7 @@ impl GitApp {
             .when_some(age, |d, age| {
                 d.child(div().flex_none().text_size(px(11.)).text_color(muted).child(age))
             })
-            .tooltip(move |window, cx| {
-                let tip = tip.clone();
-                Tooltip::element(move |_, cx| {
-                    let muted = cx.theme().colors.muted_foreground;
-                    v_flex()
-                        .gap_0p5()
-                        .max_w(px(420.))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(tip[0].clone()))
-                        .children(tip[1..].iter().map(|line| {
-                            div().text_color(muted).child(line.clone())
-                        }))
-                })
-                .build(window, cx)
-            })
+            .tooltip(lines_tooltip(tip))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, _, cx| this.open_worktree(path.clone(), cx)),
@@ -166,6 +160,10 @@ impl GitApp {
             if i.active > 0 {
                 lines.push(format!("Last change {}: {}", fmt_time(i.active), i.subject));
             }
+        }
+        if let Some(p) = w.branch_name().and_then(|b| self.pr_of_branch(b)) {
+            lines.push(format!("Pull request #{} {}", p.number, p.title));
+            lines.extend(self.pr_status_lines(p.number));
         }
         if w.locked {
             lines.push("Locked: Gibbon does not remove it.".into());

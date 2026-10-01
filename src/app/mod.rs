@@ -103,11 +103,16 @@ impl DiskChange {
 /// How often the worktree rows refresh without a change on disk, so their
 /// times stay right.
 const WORKTREE_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+/// How often the status of the pull requests reloads while checks run, and
+/// while none run. GitHub takes seconds for it, and counts the calls.
+const PR_TICK_RUNNING: std::time::Duration = std::time::Duration::from_secs(60);
+const PR_TICK_IDLE: std::time::Duration = std::time::Duration::from_secs(300);
 
 mod activity;
 mod branches;
 mod changes;
 mod palette;
+mod pulls;
 mod rebase;
 mod review;
 mod settings_ui;
@@ -148,6 +153,11 @@ pub struct GitApp {
     status: Vec<StatusEntry>,
     stashes: Vec<git::Stash>,
     prs: Vec<crate::github::PullRequest>,
+    /// Checks, review and merge state of the pull requests, by number.
+    pr_status: HashMap<u64, crate::github::PrStatus>,
+    /// When `pr_status` last loaded.
+    pr_status_at: Option<std::time::Instant>,
+    pr_epoch: u64,
     /// The worktrees of the repository, the main one first.
     worktrees: Vec<git::Worktree>,
     /// The worktree of this tab, an index into `worktrees`.
@@ -266,6 +276,9 @@ impl GitApp {
             status: vec![],
             stashes: vec![],
             prs: vec![],
+            pr_status: HashMap::new(),
+            pr_status_at: None,
+            pr_epoch: 0,
             worktrees: vec![],
             current_worktree: None,
             worktree_info: HashMap::new(),
@@ -367,6 +380,9 @@ impl GitApp {
                 let shown = this.update(cx, |this, cx| {
                     if !this.hidden && this.busy.is_none() {
                         this.load_worktree_info(false, cx);
+                        if this.pr_status_due() {
+                            this.load_pr_status(cx);
+                        }
                     }
                 });
                 if shown.is_err() {
@@ -1290,11 +1306,60 @@ impl GitApp {
             let _ = this.update(cx, |this, cx| {
                 if this.repo.as_ref().map(|r| &r.root) == Some(&repo.root) {
                     this.prs = prs.unwrap_or_default();
+                    this.load_pr_status(cx);
                     cx.notify();
                 }
             });
         })
         .detach();
+    }
+
+    /// Load the checks, reviews and merge states of the pull requests.
+    fn load_pr_status(&mut self, cx: &mut Context<Self>) {
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        if self.prs.is_empty() {
+            self.pr_status.clear();
+            return;
+        }
+        self.pr_epoch += 1;
+        let epoch = self.pr_epoch;
+        // A slow load does not start again on each tick.
+        self.pr_status_at = Some(std::time::Instant::now());
+        cx.spawn(async move |this, cx| {
+            let status = cx
+                .background_executor()
+                .spawn(async move { crate::github::statuses(&repo) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if epoch != this.pr_epoch {
+                    return;
+                }
+                // Keep the last status when GitHub does not answer.
+                if let Ok(status) = status {
+                    this.pr_status = status;
+                    this.pr_status_at = Some(std::time::Instant::now());
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The pull request status is old: a minute while checks run, else
+    /// five minutes.
+    fn pr_status_due(&self) -> bool {
+        use crate::github::CheckState;
+        if self.prs.is_empty() {
+            return false;
+        }
+        let running = self
+            .pr_status
+            .values()
+            .any(|s| s.checks.state() == Some(CheckState::Pending));
+        let every = if running { PR_TICK_RUNNING } else { PR_TICK_IDLE };
+        self.pr_status_at.is_none_or(|at| at.elapsed() >= every)
     }
 
     /// Fetch a pull request's head and browse it like a branch, or with
@@ -1600,7 +1665,10 @@ impl Render for GitApp {
             .id("git-app")
             .key_context("GitApp")
             .track_focus(&self.focus)
-            .on_action(cx.listener(|this, _: &Refresh, _, cx| this.reload(cx)))
+            .on_action(cx.listener(|this, _: &Refresh, _, cx| {
+                this.reload(cx);
+                this.load_prs(cx);
+            }))
             .on_action(cx.listener(|this, _: &ShowChanges, _, cx| {
                 this.view = View::Changes;
                 cx.notify();

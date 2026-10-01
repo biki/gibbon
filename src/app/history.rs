@@ -198,6 +198,12 @@ impl GitApp {
             }
             s
         };
+        // The pull request of the browsed branch: its checks and review.
+        let status_pr = pr
+            .or_else(|| target.strip_prefix("refs/heads/").and_then(|b| self.pr_of_branch(b)))
+            .map(|p| p.number);
+        let status = status_pr.map(|n| (self.pr_badges(n, cx), self.pr_status_lines(n).join(" · ")))
+            .filter(|(_, text)| !text.is_empty());
         Some(
             h_flex()
                 .flex_none()
@@ -225,8 +231,19 @@ impl GitApp {
                             div()
                                 .text_size(px(12.))
                                 .text_color(t.colors.muted_foreground)
+                                .truncate()
                                 .child(text),
-                        ),
+                        )
+                        .when_some(status, |d, (badges, text)| {
+                            d.child(
+                                h_flex()
+                                    .gap_1()
+                                    .text_size(px(12.))
+                                    .text_color(t.colors.muted_foreground)
+                                    .children(badges)
+                                    .child(div().min_w_0().truncate().child(text)),
+                            )
+                        }),
                 )
                 .child(
                     Button::new("back-to-head")

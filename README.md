@@ -144,6 +144,14 @@ resets, merges, pulls, pushes, and the branch switches of each worktree.
   [GitHub CLI](https://cli.github.com) and its sign-in. Click one to browse its
   commits (forks too) and pick from it, or check it out.
 - **Create Pull Request…** on a local branch pushes it and opens GitHub's form.
+- Each pull request shows its status: its checks (passed, running or
+  failed), its review (approved or changes requested) and merge conflicts.
+  The tooltip names the failed checks. A local branch or a worktree with an
+  open pull request shows the icon of its checks too, and so does the banner
+  while you browse it.
+- The status reloads every minute while checks run, every 5 minutes else,
+  and on Fetch and Refresh (<kbd>⌘</kbd><kbd>R</kbd>). Skipped checks do not
+  count.
 
 ### Make it yours
 
@@ -223,7 +231,8 @@ keychain has one, and ad hoc otherwise.
 - The file watcher reads the top-level `.gitignore` of each worktree only, so
   ignored files in deeper folders can cause extra (harmless) refreshes.
 - Interactive rebase flattens merge commits and has no *edit* or *exec* step.
-- Pull requests: open ones only, no reviews or comments.
+- Pull requests: open ones only. Gibbon shows the review decision, not the
+  reviews or the comments.
 - Activity reads the reflog files. A repository in the reftable format shows
   no moves. Git deletes the reflog of a deleted branch, so its moves go too.
 - No in-app updates and no notarized builds yet.

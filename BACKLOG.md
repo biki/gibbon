@@ -77,9 +77,10 @@ Next steps:
 - **Agent badges** — idea. Read the `Co-Authored-By` trailers and the bot
   authors. Put a small badge on agent commits in the graph, and add a
   filter: agent, human, or all.
-- **Pull request status in the sidebar** — idea. Show the CI result, the
-  review decision and merge conflicts. `gh pr list --json` gives
-  `statusCheckRollup`, `reviewDecision` and `mergeable`.
+- **Pull request status in the sidebar** — done. The checks, the review
+  decision and merge conflicts on the pull request rows, and the checks on
+  the rows of their branches and worktrees. Next: the reviews and comments
+  themselves, and a link from a failed check to its log.
 - **Ahead and behind counts against the base branch** — idea. The sidebar
   reads only `upstream:track`. A local agent branch has no upstream until the
   agent pushes it, so the sidebar shows no counts for it.

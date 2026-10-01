@@ -436,13 +436,8 @@ impl GitApp {
                             .child(format!("#{}", p.number)),
                     )
                     .child(label(p.title.clone(), false))
-                    .tooltip({
-                        let tip = format!("{} → {} · {}", p.head, p.base, p.author);
-                        move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(tip.clone())
-                                .build(window, cx)
-                        }
-                    })
+                    .child(h_flex().flex_none().gap_1().children(self.pr_badges(p.number, cx)))
+                    .tooltip(pulls::lines_tooltip(self.pr_tip(&p)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, _, cx| this.browse_pr(p.clone(), false, cx)),
@@ -531,6 +526,9 @@ impl GitApp {
                     RefKind::Tag => IconName::Tag,
                 };
                 let name = b.name.clone();
+                let pr = (b.kind == RefKind::Local)
+                    .then(|| self.pr_of_branch(&b.name).map(|p| p.number))
+                    .flatten();
                 let track = match (b.ahead, b.behind) {
                     (0, 0) => None,
                     (a, 0) => Some(format!("↑{a}")),
@@ -548,6 +546,11 @@ impl GitApp {
                             .text_color(if b.is_head { t.colors.primary } else { muted }),
                     )
                     .child(label(name, b.is_head))
+                    // The checks of the branch's pull request.
+                    .when_some(
+                        pr.and_then(|n| self.pr_checks_icon(n, cx)),
+                        |d, icon| d.child(icon),
+                    )
                     .when_some(track, |d, s| {
                         d.child(div().text_size(px(11.)).text_color(muted).child(s))
                     })
