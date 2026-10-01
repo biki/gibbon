@@ -123,6 +123,7 @@ mod files;
 mod history;
 mod hover;
 mod image;
+mod markdown;
 mod palette;
 mod pane;
 mod pulls;
@@ -240,6 +241,8 @@ pub struct GitApp {
     line_anchor: Option<usize>,
     /// The pictures of the shown image file, in any view.
     image: image::ImagePreview,
+    /// The rendered documents of the shown Markdown file, in any view.
+    markdown: markdown::MarkdownPreview,
     message: Entity<TextareaState>,
     filter: Entity<InputState>,
     /// Enter-to-submit for the open text dialog.
@@ -361,6 +364,7 @@ impl GitApp {
             line_sel: HashSet::new(),
             line_anchor: None,
             image: image::ImagePreview::default(),
+            markdown: markdown::MarkdownPreview::default(),
             message,
             filter,
             prompt_sub: None,

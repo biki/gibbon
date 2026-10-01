@@ -30,6 +30,8 @@ pub struct Settings {
     pub split_diff: bool,
     /// SVG files show their text diff, not their pictures.
     pub svg_text: bool,
+    /// Markdown files show rendered, not as their text diff.
+    pub markdown_rendered: bool,
     /// File lists show a tree of folders, not a flat list.
     pub file_tree: bool,
     /// File lists sort names Z to A.
@@ -62,6 +64,7 @@ impl Default for Settings {
             code_size: 12.,
             split_diff: false,
             svg_text: false,
+            markdown_rendered: false,
             file_tree: false,
             file_sort_desc: false,
             changes_recent: false,

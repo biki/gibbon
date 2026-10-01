@@ -409,6 +409,20 @@ impl GitApp {
                     .ml_2(),
                 )
             })
+            .when(markdown::is_markdown(&file), |d| {
+                d.child(
+                    segmented(
+                        "markdown-view",
+                        &[("Rendered", true), ("Text", false)],
+                        crate::settings::get(cx).markdown_rendered,
+                        |rendered, _, cx| {
+                            crate::settings::update_layout(cx, |s| s.markdown_rendered = rendered)
+                        },
+                        cx,
+                    )
+                    .ml_2(),
+                )
+            })
             .child(
                 segmented(
                     "diff-mode",
@@ -429,10 +443,17 @@ impl GitApp {
                 .child(text)
         };
         let picture = image::picture(&file, cx);
-        // The pictures of an SVG file have no lines to stage.
-        let partial = ctx != DiffCtx::Commit && git::supports_partial(&file) && picture.is_none();
+        let rendered = markdown::rendered(&file, cx);
+        // The pictures of an SVG file and a rendered document have no lines
+        // to stage.
+        let partial = ctx != DiffCtx::Commit
+            && git::supports_partial(&file)
+            && picture.is_none()
+            && !rendered;
         let body = if let Some(format) = picture {
             self.render_image_diff(&file, format, ctx, cx)
+        } else if rendered {
+            self.render_markdown_diff(&file, ctx, cx)
         } else if file.binary {
             note("Binary file, no text diff.").into_any_element()
         } else if file.lines.is_empty() {

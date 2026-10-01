@@ -84,6 +84,9 @@ palette and on the welcome screen.
 - Image files (PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, SVG) show as pictures:
   the old one beside the new one, each with its size in pixels and in bytes.
   An SVG file has a **Picture** / **Text** switch for its text diff.
+- Markdown files have a **Rendered** / **Text** switch. **Rendered** shows
+  the document before the change beside the document after it, with the
+  changed text marked, and scrolls both to the first change.
 - Changed files show as a list sorted by name (A to Z or Z to A) or as a
   tree of folders. All file lists use the same choice.
 - The Changes list can also show the most recent edits first, by the time of
@@ -332,6 +335,9 @@ keychain has one, and ad hoc otherwise.
 - Hunk and line staging works for changed text files. New, deleted and binary
   files stage as a whole.
 - The split view cuts lines at 1,200 characters and has no horizontal scroll.
+- Rendered Markdown shows only the pictures in the repository, from the
+  files on disk, also for an older version of the file. Pictures from the
+  web (badges) do not show.
 - The file watcher reads the top-level `.gitignore` of each worktree only, so
   ignored files in deeper folders can cause extra (harmless) refreshes.
 - Interactive rebase flattens merge commits and has no *edit* or *exec* step.
