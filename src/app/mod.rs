@@ -1758,7 +1758,7 @@ impl GitApp {
         let path = self
             .repo
             .as_ref()
-            .map(|r| r.root.display().to_string())
+            .map(|r| crate::clone::tilde(&r.root))
             .unwrap_or_default();
         let n = self.commits.len();
         let commits = if self.log_loading {
