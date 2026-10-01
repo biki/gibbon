@@ -136,7 +136,7 @@ fn alloc(lanes: &mut Vec<Option<(usize, usize)>>) -> usize {
 
 /// Lane colors, picked to read on dark and light backgrounds.
 pub const COLORS: [u32; 8] = [
-    0x7C8CFF, 0x3FC9A8, 0xF2A65A, 0xE66CA0, 0x5BB8F5, 0xB48CF2, 0xA5D46A, 0xF07167,
+    0xF2AE3D, 0x3FC9A8, 0x7C8CFF, 0xE66CA0, 0x5BB8F5, 0xB48CF2, 0xA5D46A, 0xF07167,
 ];
 
 pub fn lane_color(i: usize) -> Hsla {

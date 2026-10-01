@@ -19,6 +19,9 @@ pub fn mono_font(cx: &App) -> SharedString {
     Theme::global(cx).mono_font_family.clone()
 }
 
+/// Colors are `0xRRGGBB`, except `hover` and `highlight`: they are
+/// `0xRRGGBBAA` tints, so they show the same on the sidebar, the panes and
+/// popovers.
 pub struct Palette {
     pub light: bool,
     pub bg: u32,
@@ -26,7 +29,11 @@ pub struct Palette {
     pub elevated: u32,
     pub border: u32,
     pub input: u32,
+    /// Rows under the pointer.
     pub hover: u32,
+    /// The current item of menus and the command palette. Ghost buttons
+    /// under the pointer use half of it in dark mode.
+    pub highlight: u32,
     pub selection: u32,
     pub fg: u32,
     pub muted_fg: u32,
@@ -55,23 +62,29 @@ pub struct Syntax {
     pub attribute: u32,
 }
 
+// The colors of gibbons: the black fur of a siamang for the dark grounds,
+// the cream face ring of a lar gibbon for text, and the gold of a female
+// golden-cheeked gibbon for the accent. The grays lean warm to match. Light
+// mode darkens the gold so text in it stays readable on white.
+
 pub const DARK: Palette = Palette {
     light: false,
-    bg: 0x131418,
-    sidebar: 0x0F1013,
-    elevated: 0x1C1D22,
-    border: 0x24262C,
-    input: 0x2C2E36,
-    hover: 0x1B1C21,
-    selection: 0x262A45,
-    fg: 0xE4E5EA,
-    muted_fg: 0x8A8C97,
-    accent: 0x7C8CFF,
-    accent_fg: 0xFFFFFF,
-    red: 0xF0616D,
-    green: 0x3FC98A,
-    yellow: 0xE8B64A,
-    blue: 0x5BB8F5,
+    bg: 0x171512,
+    sidebar: 0x0F0E0C,
+    elevated: 0x221F1B,
+    border: 0x35302A,
+    input: 0x4A443C,
+    hover: 0xFFF1DC17,
+    highlight: 0xFFF1DC2E,
+    selection: 0x45351B,
+    fg: 0xF2EDE4,
+    muted_fg: 0xA69D90,
+    accent: 0xF2AE3D,
+    accent_fg: 0x1C1305,
+    red: 0xF26D6D,
+    green: 0x5CCB8A,
+    yellow: 0xE9CD5B,
+    blue: 0x62B6F2,
     magenta: 0xE66CA0,
     cyan: 0x3FC9C9,
     syntax: Syntax {
@@ -80,9 +93,9 @@ pub const DARK: Palette = Palette {
         type_: 0x4FD6BE,
         string: 0xA6DA95,
         number: 0xF5A97F,
-        comment: 0x6C707D,
+        comment: 0x7D756A,
         property: 0x8BD5F7,
-        punct: 0x9499A8,
+        punct: 0x9C958A,
         tag: 0xF38BA8,
         attribute: 0xE8C77A,
     },
@@ -91,20 +104,21 @@ pub const DARK: Palette = Palette {
 pub const LIGHT: Palette = Palette {
     light: true,
     bg: 0xFFFFFF,
-    sidebar: 0xF6F6F8,
+    sidebar: 0xF5F0E7,
     elevated: 0xFFFFFF,
-    border: 0xE4E4E9,
-    input: 0xD8D8DF,
-    hover: 0xF1F1F4,
-    selection: 0xE3E7FF,
-    fg: 0x1B1C21,
-    muted_fg: 0x6A6D79,
-    accent: 0x5566F0,
+    border: 0xDDD5C8,
+    input: 0xC4BAAA,
+    hover: 0x5C452117,
+    highlight: 0x5C45211C,
+    selection: 0xF8DDA8,
+    fg: 0x1E1A14,
+    muted_fg: 0x6B6255,
+    accent: 0xA05E00,
     accent_fg: 0xFFFFFF,
-    red: 0xD63A4A,
-    green: 0x16965C,
-    yellow: 0xB27A0C,
-    blue: 0x1F7FD1,
+    red: 0xC8323F,
+    green: 0x16804A,
+    yellow: 0x8A6C00,
+    blue: 0x1F6FBF,
     magenta: 0xC23C7E,
     cyan: 0x118C8C,
     syntax: Syntax {
@@ -113,9 +127,9 @@ pub const LIGHT: Palette = Palette {
         type_: 0x0B7A6E,
         string: 0x2B7A33,
         number: 0xB35900,
-        comment: 0x7B7F8C,
+        comment: 0x857B6E,
         property: 0x0A6C9E,
-        punct: 0x5F6370,
+        punct: 0x655D52,
         tag: 0xB42B55,
         attribute: 0x8A5A00,
     },
@@ -141,6 +155,11 @@ fn hexa(c: u32, a: u8) -> String {
     format!("#{c:06x}{a:02x}")
 }
 
+/// A `0xRRGGBBAA` color.
+fn rgba(c: u32) -> String {
+    format!("#{c:08x}")
+}
+
 fn config_json(p: &Palette) -> Value {
     let colors: serde_json::Map<String, Value> = [
         ("background", hex(p.bg)),
@@ -151,9 +170,9 @@ fn config_json(p: &Palette) -> Value {
         ("muted.foreground", hex(p.muted_fg)),
         ("primary.background", hex(p.accent)),
         ("primary.foreground", hex(p.accent_fg)),
-        ("secondary.background", hex(p.hover)),
+        ("secondary.background", rgba(p.hover)),
         ("secondary.foreground", hex(p.fg)),
-        ("accent.background", hex(p.hover)),
+        ("accent.background", rgba(p.highlight)),
         ("accent.foreground", hex(p.fg)),
         ("popover.background", hex(p.elevated)),
         ("popover.foreground", hex(p.fg)),
@@ -167,7 +186,7 @@ fn config_json(p: &Palette) -> Value {
         ("sidebar.accent.background", hex(p.selection)),
         ("sidebar.accent.foreground", hex(p.fg)),
         ("list.background", hex(p.bg)),
-        ("list.hover.background", hex(p.hover)),
+        ("list.hover.background", rgba(p.hover)),
         ("list.active.background", hex(p.selection)),
         ("list.active.border", hexa(p.accent, 0x00)),
         ("selection.background", hexa(p.accent, 0x55)),
@@ -276,6 +295,11 @@ pub fn apply(cx: &mut App) {
         let sidebar: Hsla = rgb(p.sidebar).into();
         theme.colors.sidebar = sidebar;
         theme.tokens.sidebar = sidebar.into();
+        // The kit caps the alpha of list.active at 0.2, and selected rows
+        // then barely show.
+        let selection: Hsla = rgb(p.selection).into();
+        theme.colors.list_active = selection;
+        theme.tokens.list_active = selection.into();
         theme.notification.placement = Anchor::BottomRight;
         theme.notification.margins.bottom = px(36.);
         theme.notification.margins.right = px(12.);
