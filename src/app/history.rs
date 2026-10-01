@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::{v_resizable, Colorize as _};
+use gpui_kit::component::Colorize as _;
 
 use super::*;
 
@@ -48,11 +48,9 @@ impl GitApp {
     pub(super) fn render_history(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let (border, muted) = (cx.theme().colors.border, cx.theme().colors.muted_foreground);
         let detail = if self.detail.is_some() {
-            h_resizable("detail-split")
+            split("detail-split", false)
                 .child(
-                    resizable_panel()
-                        .size(px(380.))
-                        .size_range(px(260.)..px(800.))
+                    split_panel("detail-split", 380., 260.0..800., cx)
                         .child(
                             div()
                                 .size_full()
@@ -88,11 +86,9 @@ impl GitApp {
                 })
                 .into_any_element()
         };
-        v_resizable("history-split")
+        split("history-split", true)
             .child(
-                resizable_panel()
-                    .size(px(430.))
-                    .size_range(px(160.)..px(4000.))
+                split_panel("history-split", 430., 160.0..4000., cx)
                     .child(self.pane(Part::Log, cx)),
             )
             .child(resizable_panel().child(detail))

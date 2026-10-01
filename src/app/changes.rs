@@ -63,11 +63,9 @@ impl GitApp {
 
     /// The changed files and the commit box beside the diff. Each is a pane.
     pub(super) fn render_changes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_resizable("changes-split")
+        split("changes-split", false)
             .child(
-                resizable_panel()
-                    .size(px(380.))
-                    .size_range(px(260.)..px(700.))
+                split_panel("changes-split", 380., 260.0..700., cx)
                     .child(self.pane(Part::Changes, cx)),
             )
             .child(resizable_panel().child(self.pane(Part::Diff, cx)))

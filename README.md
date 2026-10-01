@@ -164,9 +164,9 @@ Settings (<kbd>⌘</kbd><kbd>,</kbd>) choose the look:
   Source Code Pro, DM Mono, Martian Mono and JetBrains Mono.
 - Text sizes and the default diff view.
 
-Gibbon remembers its window and its tabs, and reopens each repository where
-you left it: the same view, branch, commit and file, and the review with its
-Viewed marks.
+Gibbon remembers its window, its tabs and the sizes of its panes, and
+reopens each repository where you left it: the same view, branch, commit and
+file, and the review with its Viewed marks.
 
 ## Getting started
 

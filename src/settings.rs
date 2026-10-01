@@ -1,6 +1,7 @@
 //! User settings, saved as JSON in
 //! `~/Library/Application Support/gibbon/settings.json`.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use gpui_kit::{App, Global};
@@ -33,6 +34,9 @@ pub struct Settings {
     pub ui_font: String,
     /// Code font, an id from `fonts::CODE_FONTS`.
     pub code_font: String,
+    /// The size of the first panel of each split, by the split's id, as the
+    /// user last dragged it.
+    pub panes: BTreeMap<String, f32>,
 }
 
 impl Default for Settings {
@@ -46,6 +50,7 @@ impl Default for Settings {
             file_sort_desc: false,
             ui_font: crate::fonts::DEFAULT_UI.into(),
             code_font: crate::fonts::DEFAULT_CODE.into(),
+            panes: BTreeMap::new(),
         }
     }
 }
@@ -75,6 +80,13 @@ fn save(s: &Settings) {
 
 pub fn get(cx: &App) -> &Settings {
     cx.global::<Settings>()
+}
+
+/// Change and save a setting of the layout, which needs no new theme.
+pub fn update_layout(cx: &mut App, f: impl FnOnce(&mut Settings)) {
+    let s = cx.global_mut::<Settings>();
+    f(s);
+    save(s);
 }
 
 /// Change, save and apply the settings.
