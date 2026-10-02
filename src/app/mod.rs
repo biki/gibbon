@@ -167,6 +167,9 @@ pub struct GitApp {
     /// When a status load saw each file change on disk: its rows flash for
     /// `changes::FLASH`.
     edited: HashMap<String, Instant>,
+    /// The window has the focus of macOS. Only then do changed files flash:
+    /// in the background, a flash is over before you look.
+    window_active: bool,
     stashes: Vec<git::Stash>,
     prs: Vec<crate::github::PullRequest>,
     /// Checks, review and merge state of the pull requests, by number.
@@ -291,6 +294,9 @@ impl GitApp {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches"));
         let subs = vec![
             cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.observe_window_activation(window, |this, window, _| {
+                this.window_active = window.is_window_active();
+            }),
             // Light / dark switch: syntax colors come from the theme.
             cx.observe_global::<gpui_kit::component::theme::Theme>(|this, cx| {
                 this.detail_styles = FileStyles::default();
@@ -386,6 +392,7 @@ impl GitApp {
             restored: false,
             hidden: false,
             hidden_change: DiskChange::default(),
+            window_active: window.is_window_active(),
             log_epoch: 0,
             detail_epoch: 0,
             diff_epoch: 0,
@@ -720,9 +727,9 @@ impl GitApp {
     }
 
     /// Take a new working-tree status. A file that is new in the list, or
-    /// whose time on disk moved, flashes in the Changes list. A file that is
-    /// newly deleted gets the time of now. Before the first load
-    /// (`refs_loaded`), no file is new.
+    /// whose time on disk moved, flashes in the Changes list while the
+    /// window is active. A file that is newly deleted gets the time of now.
+    /// Before the first load (`refs_loaded`), no file is new.
     fn set_status(&mut self, status: Vec<StatusEntry>) {
         let (now, flash) = (SystemTime::now(), Instant::now());
         let before: HashMap<&str, Option<SystemTime>> = self
@@ -734,7 +741,7 @@ impl GitApp {
         let mut deleted_at = HashMap::new();
         for e in &status {
             let old = before.get(e.path.as_str());
-            if self.refs_loaded && old != Some(&e.modified) {
+            if self.refs_loaded && self.window_active && old != Some(&e.modified) {
                 self.edited.insert(e.path.clone(), flash);
             }
             if e.modified.is_some() {

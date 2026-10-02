@@ -101,7 +101,8 @@ palette and on the welcome screen.
   select lines (<kbd>⇧</kbd>-click for a range), then **Stage lines**.
 - Discard a file, a hunk, some lines or everything. Gibbon always asks first.
 - Gibbon watches the repository and refreshes by itself. A file that changed
-  on disk since the last refresh flashes in the list for a moment.
+  on disk since the last refresh flashes in the list for a moment, while the
+  Gibbon window is active.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/changes-dark.png">
