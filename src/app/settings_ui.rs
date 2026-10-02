@@ -61,6 +61,13 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
             |split, _, cx| settings::update(cx, |s| s.split_diff = split),
             cx,
         );
+        let wrap = segmented(
+            "set-wrap",
+            &[("Scroll", false), ("Wrap", true)],
+            s.wrap_diff,
+            |wrap, _, cx| settings::update_layout(cx, |s| s.wrap_diff = wrap),
+            cx,
+        );
         let fetch = segmented(
             "set-fetch",
             &FETCH_EVERY,
@@ -139,6 +146,11 @@ pub(super) fn open_settings(window: &mut Window, cx: &mut App) {
                     code.into_any_element(),
                 ))
                 .child(row("Diffs", "How diffs open.", diff.into_any_element()))
+                .child(row(
+                    "Long lines",
+                    "Scroll sideways to see them, or wrap them.",
+                    wrap.into_any_element(),
+                ))
                 .child(row(
                     "Fetch",
                     "Fetch all remotes on this timer, and when you switch tabs.",

@@ -43,6 +43,7 @@ actions!(
         TogglePalette,
         OpenSettings,
         CheckForUpdates,
+        ToggleWordWrap,
         SelectPrev,
         SelectNext,
     ]
@@ -145,6 +146,9 @@ fn install_menus(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &HideApp, cx| cx.hide());
     cx.on_action(|_: &CheckForUpdates, cx| update::check(true, cx));
+    cx.on_action(|_: &ToggleWordWrap, cx| {
+        settings::update_layout(cx, |s| s.wrap_diff = !s.wrap_diff)
+    });
     cx.set_menus([
         Menu::new("Gibbon").items([
             MenuItem::action("Settings…", OpenSettings),
@@ -164,6 +168,8 @@ fn install_menus(cx: &mut App) {
             MenuItem::action("History", ShowHistory),
             MenuItem::action("All Branches", ShowAllBranches),
             MenuItem::action("Activity", ShowActivity),
+            MenuItem::separator(),
+            MenuItem::action("Word Wrap in Diffs", ToggleWordWrap),
             MenuItem::separator(),
             MenuItem::action("Refresh", Refresh),
         ]),

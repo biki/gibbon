@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
 
+use gpui_kit::component::Selectable as _;
 use gpui_kit::component::scroll::{Scrollbar, ScrollbarHandle, ScrollbarMode};
 
 use crate::git::{DiffLine, FileChange, LineKind, PatchOp};
@@ -47,6 +48,16 @@ pub enum DiffCtx {
 pub(super) enum DiffFile {
     Own(Rc<FileDiff>),
     Of(Rc<CommitDetail>, usize),
+}
+
+impl DiffFile {
+    /// Changes when the diff changes: a reload makes a new one.
+    fn content_id(&self) -> usize {
+        match self {
+            DiffFile::Own(file) => Rc::as_ptr(file) as usize,
+            DiffFile::Of(detail, ix) => Rc::as_ptr(detail) as usize + ix,
+        }
+    }
 }
 
 impl std::ops::Deref for DiffFile {
@@ -132,9 +143,122 @@ impl DiffLayout {
     }
 }
 
+/// Where each line of a file wraps: the byte offsets at which its next
+/// parts start, and the indent of those parts, in spaces.
+type Breaks = Vec<(Vec<usize>, u32)>;
+
+/// The rows on screen when lines wrap. Each row of the layout (a line, or a
+/// row of the split view) takes one row on screen for each part of its
+/// longest line, so that all rows on screen stay one line high.
+struct WrapRows {
+    breaks: Breaks,
+    /// The layout row and its part, for each row on screen.
+    rows: Vec<(usize, usize)>,
+    /// The first row on screen of each layout row.
+    first: Vec<usize>,
+}
+
+impl WrapRows {
+    /// `wrap` breaks the shown text of a line (see `Breaks`).
+    fn new(
+        file: &FileDiff,
+        layout: &DiffLayout,
+        mode: DiffMode,
+        mut wrap: impl FnMut(&str) -> (Vec<usize>, u32),
+    ) -> Self {
+        let breaks: Breaks = file
+            .lines
+            .iter()
+            .map(|l| match l.kind {
+                LineKind::Context | LineKind::Add | LineKind::Del => wrap(shown(&l.text)),
+                LineKind::Hunk | LineKind::Note => (Vec::new(), 0),
+            })
+            .collect();
+        let parts = |i: Option<usize>| i.map_or(1, |i| breaks[i].0.len() + 1);
+        let counts: Vec<usize> = match mode {
+            DiffMode::Unified => (0..file.lines.len() + usize::from(file.truncated))
+                .map(|i| parts((i < file.lines.len()).then_some(i)))
+                .collect(),
+            DiffMode::Split => layout
+                .rows
+                .iter()
+                .map(|row| match *row {
+                    SplitRow::Pair(l, r) => parts(l).max(parts(r)),
+                    _ => 1,
+                })
+                .collect(),
+        };
+        let mut rows = Vec::new();
+        let mut first = Vec::with_capacity(counts.len());
+        for (row, n) in counts.into_iter().enumerate() {
+            first.push(rows.len());
+            rows.extend((0..n).map(|part| (row, part)));
+        }
+        WrapRows {
+            breaks,
+            rows,
+            first,
+        }
+    }
+
+    /// The bytes of part `part` of line `i`, whose shown text is `len`
+    /// bytes long. None after its last part.
+    fn part(&self, i: usize, part: usize, len: usize) -> Option<Range<usize>> {
+        let breaks = &self.breaks[i].0;
+        let start = match part {
+            0 => 0,
+            _ => *breaks.get(part - 1)?,
+        };
+        Some(start..breaks.get(part).copied().unwrap_or(len))
+    }
+}
+
+/// What the rows on screen for wrapped lines depend on.
+#[derive(Clone, Copy, PartialEq)]
+struct WrapKey {
+    /// `DiffFile::content_id`.
+    content: usize,
+    split: bool,
+    font: FontId,
+    size: Pixels,
+    /// The width that the lines wrap at.
+    width: Pixels,
+}
+
+/// Which part of each line a row shows.
+#[derive(Clone, Copy)]
+enum Cut<'a> {
+    /// All of it, scrolled sideways by this much.
+    Scroll(Pixels),
+    /// Part `part`, as `wraps` breaks the lines, on row `at` of the screen.
+    /// Later parts move right by `space` for each space of their indent.
+    Wrap {
+        wraps: &'a WrapRows,
+        part: usize,
+        at: usize,
+        space: Pixels,
+    },
+}
+
+impl Cut<'_> {
+    /// The index for the ids of a row of layout row `i`: each part needs
+    /// its own.
+    fn id(&self, i: usize) -> usize {
+        match self {
+            Cut::Scroll(_) => i,
+            Cut::Wrap { at, .. } => *at,
+        }
+    }
+
+    /// The first part of a line shows its numbers and its sign.
+    fn first(&self) -> bool {
+        matches!(self, Cut::Scroll(_) | Cut::Wrap { part: 0, .. })
+    }
+}
+
 /// The scroll state of a diff view. The list scrolls the rows up and down.
 /// The code scrolls sideways by `x` under fixed line numbers, so both sides
-/// of the split view scroll together.
+/// of the split view scroll together. Wrapped lines do not scroll sideways.
 #[derive(Clone, Default)]
 pub(super) struct DiffScroll(Rc<ScrollState>);
 
@@ -156,12 +280,16 @@ struct ScrollState {
     file: RefCell<(String, String)>,
     /// The axis of the current scroll gesture, locked as the list locks it.
     gesture: RefCell<OngoingScroll>,
+    /// The rows on screen for wrapped lines, and what they were made for.
+    wraps: RefCell<Option<(WrapKey, Rc<WrapRows>)>>,
+    /// The rows on screen of the last frame, None when lines did not wrap.
+    shown_wraps: RefCell<Option<Rc<WrapRows>>>,
 }
 
 impl DiffScroll {
     /// `source` is what the file belongs to, such as a commit: the same path
     /// in another commit is another file.
-    fn set_file(&self, source: &str, path: &str, text_w: Pixels, rows_h: Pixels, split: bool) {
+    fn set_file(&self, source: &str, path: &str, text_w: Pixels, split: bool) {
         let s = &self.0;
         let shown = s.file.borrow().0 == source && s.file.borrow().1 == path;
         if !shown {
@@ -172,8 +300,70 @@ impl DiffScroll {
             list.base_handle.set_offset(point(px(0.), px(0.)));
         }
         s.text_w.set(text_w);
-        s.rows_h.set(rows_h);
         s.split.set(split);
+    }
+
+    /// The width that lines wrap at: the code column, clear of the vertical
+    /// scrollbar. Zero before the first frame.
+    fn wrap_w(&self) -> Pixels {
+        let view = self.0.list.viewport_bounds().size.width;
+        if view <= px(0.) {
+            return px(0.);
+        }
+        (self.code_w(view) - Scrollbar::width()).max(px(1.))
+    }
+
+    /// The rows on screen for wrapped lines, made again when `key` changes.
+    fn wraps(&self, key: WrapKey, make: impl FnOnce() -> WrapRows) -> Rc<WrapRows> {
+        let mut cache = self.0.wraps.borrow_mut();
+        if let Some((k, rows)) = &*cache
+            && *k == key
+        {
+            return rows.clone();
+        }
+        let rows = Rc::new(make());
+        *cache = Some((key, rows.clone()));
+        rows
+    }
+
+    /// Show the rows `wraps`, None when lines do not wrap. When the rows on
+    /// screen change, because lines start or stop to wrap or wrap at another
+    /// width, the top line stays at the top. Each row is `row_h` high.
+    fn show_wraps(&self, wraps: Option<Rc<WrapRows>>, row_h: Pixels) {
+        let s = &self.0;
+        let old = s.shown_wraps.replace(wraps.clone());
+        let same = match (&old, &wraps) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        };
+        if same {
+            return;
+        }
+        let list = s.list.0.borrow();
+        let at = (-list.base_handle.offset().y / row_h) as usize;
+        let row = match &old {
+            Some(old) => old.rows.get(at).map_or(0, |r| r.0),
+            None => at,
+        };
+        let at = match &wraps {
+            Some(new) => new.first.get(row).copied().unwrap_or(0),
+            None => row,
+        };
+        list.base_handle
+            .set_offset(point(px(0.), -(row_h * at as f32)));
+    }
+
+    /// The width that lines wrap at comes from the last frame. If the view
+    /// changed width, render again with the right breaks.
+    fn check_wrap(&self, window: &Window) {
+        let shown = self.0.shown_wraps.borrow().is_some();
+        if shown
+            && let Some((key, _)) = &*self.0.wraps.borrow()
+            && key.width != self.wrap_w()
+        {
+            window.request_animation_frame();
+        }
     }
 
     /// Width of one code column, beside the line numbers.
@@ -383,6 +573,11 @@ impl GitApp {
         } else {
             DiffMode::Unified
         };
+        let wrap = crate::settings::get(cx).wrap_diff;
+        let picture = image::picture(&file, cx);
+        let rendered = markdown::rendered(&file, cx);
+        let text_diff = picture.is_none() && !rendered && !file.binary;
+        let accent = t.colors.primary;
         let header = h_flex()
             .flex_none()
             .h(px(36.))
@@ -445,6 +640,24 @@ impl GitApp {
                     .ml_2(),
                 )
             })
+            .when(text_diff, |d| {
+                d.child(
+                    button("diff-wrap")
+                        .ghost()
+                        .small()
+                        .ml_2()
+                        .icon(Icon::new(IconName::TextWrap).when(wrap, |i| i.text_color(accent)))
+                        .selected(wrap)
+                        .tooltip(if wrap {
+                            "Stop wrapping long lines"
+                        } else {
+                            "Wrap long lines"
+                        })
+                        .on_click(|_, _, cx| {
+                            crate::settings::update_layout(cx, |s| s.wrap_diff = !s.wrap_diff)
+                        }),
+                )
+            })
             .child(
                 segmented(
                     "diff-mode",
@@ -464,8 +677,6 @@ impl GitApp {
                 .text_color(muted)
                 .child(text)
         };
-        let picture = image::picture(&file, cx);
-        let rendered = markdown::rendered(&file, cx);
         // The pictures of an SVG file and a rendered document have no lines
         // to stage.
         let partial = ctx != DiffCtx::Commit
@@ -488,49 +699,94 @@ impl GitApp {
                 DiffMode::Unified => file.lines.len() + usize::from(file.truncated),
             };
             let (size, line_h) = metrics(cx);
-            let text = cx.text_system();
-            let font_id = text.resolve_font(&font(crate::theme::mono_font(cx)));
-            let advance = text
-                .advance(font_id, px(size), 'm')
-                .map_or(px(size * 0.6), |a| a.width);
-            scroll.set_file(
-                &source,
-                &file.path,
-                advance * layout.cols as f32,
-                px(line_h) * n as f32,
-                mode == DiffMode::Split,
-            );
+            let text = cx.text_system().clone();
+            let mono = font(crate::theme::mono_font(cx));
+            let font_id = text.resolve_font(&mono);
+            let advance = |c| {
+                text.advance(font_id, px(size), c)
+                    .map_or(px(size * 0.6), |a| a.width)
+            };
+            let (advance, space) = (advance('m'), advance(' '));
+            // Wrapped lines need no sideways scroll.
+            let text_w = if wrap {
+                px(0.)
+            } else {
+                advance * layout.cols as f32
+            };
+            scroll.set_file(&source, &file.path, text_w, mode == DiffMode::Split);
+            let wraps = wrap.then(|| {
+                let width = scroll.wrap_w();
+                let key = WrapKey {
+                    content: file.content_id(),
+                    split: mode == DiffMode::Split,
+                    font: font_id,
+                    size: px(size),
+                    width,
+                };
+                scroll.wraps(key, || {
+                    // The wrapper of the text system, so that each part fits.
+                    let mut wrapper = text.line_wrapper(mono.clone(), px(size));
+                    WrapRows::new(&file, &layout, mode, |line| {
+                        if width <= px(0.) {
+                            return (Vec::new(), 0);
+                        }
+                        let mut indent = 0;
+                        let breaks = wrapper
+                            .wrap_line(&[LineFragment::text(line)], width)
+                            .map(|b| {
+                                indent = b.next_indent;
+                                b.ix
+                            })
+                            .collect();
+                        (breaks, indent)
+                    })
+                })
+            });
+            scroll.show_wraps(wraps.clone(), px(line_h));
+            let n = wraps.as_ref().map_or(n, |w| w.rows.len());
+            scroll.0.rows_h.set(px(line_h) * n as f32);
             let (_, room_below) = scroll.bars();
             scroll.0.room_below.set(room_below);
             let (f, st, s) = (file.clone(), styles.clone(), scroll.clone());
-            let mut list = if mode == DiffMode::Split {
-                uniform_list(
-                    id,
-                    n,
-                    cx.processor(move |this, range: Range<usize>, window, cx| {
-                        s.check_room(window);
-                        let x = s.x();
-                        range
-                            .map(|i| {
-                                let row = layout.rows[i];
-                                this.split_row(&f, st.as_deref(), row, i, x, ctx, partial, cx)
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-                )
-            } else {
-                uniform_list(
-                    id,
-                    n,
-                    cx.processor(move |this, range: Range<usize>, window, cx| {
-                        s.check_room(window);
-                        let x = s.x();
-                        range
-                            .map(|i| this.unified_row(&f, st.as_deref(), i, x, ctx, partial, cx))
-                            .collect::<Vec<_>>()
-                    }),
-                )
-            };
+            let mut list = uniform_list(
+                id,
+                n,
+                cx.processor(move |this, range: Range<usize>, window, cx| {
+                    s.check_room(window);
+                    s.check_wrap(window);
+                    let x = s.x();
+                    range
+                        .map(|at| {
+                            let (row, cut) = match &wraps {
+                                Some(wraps) => {
+                                    let (row, part) = wraps.rows[at];
+                                    let (wraps, at) = (&**wraps, at);
+                                    (
+                                        row,
+                                        Cut::Wrap {
+                                            wraps,
+                                            part,
+                                            at,
+                                            space,
+                                        },
+                                    )
+                                }
+                                None => (at, Cut::Scroll(x)),
+                            };
+                            let st = st.as_deref();
+                            match mode {
+                                DiffMode::Split => {
+                                    let r = layout.rows[row];
+                                    this.split_row(&f, st, r, row, cut, ctx, partial, cx)
+                                }
+                                DiffMode::Unified => {
+                                    this.unified_row(&f, st, row, cut, ctx, partial, cx)
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                }),
+            );
             // Without this, a sideways swipe scrolls the rows up and down.
             list.style().restrict_scroll_to_axis = Some(true);
             // GPUI notifies the pane for a scroll of the list. The sideways
@@ -705,7 +961,7 @@ impl GitApp {
         file: &FileDiff,
         styles: Option<&DiffStyles>,
         i: usize,
-        x: Pixels,
+        cut: Cut,
         ctx: DiffCtx,
         partial: bool,
         cx: &mut Context<Self>,
@@ -739,7 +995,7 @@ impl GitApp {
             .text_size(px(size))
             .child(
                 h_flex()
-                    .id(("gutter", i))
+                    .id(("gutter", cut.id(i)))
                     .h_full()
                     .flex_none()
                     .bg(gutter_bg)
@@ -752,11 +1008,11 @@ impl GitApp {
                             }),
                         )
                     })
-                    .child(num(line.old_no))
-                    .child(num(line.new_no)),
+                    .child(num(line.old_no.filter(|_| cut.first())))
+                    .child(num(line.new_no.filter(|_| cut.first()))),
             )
-            .child(sign(line.kind, cx))
-            .child(code(line, i, styles, x, cx))
+            .child(sign(line.kind, cut.first(), cx))
+            .child(code(line, i, styles, cut, cx))
             .into_any_element()
     }
 
@@ -767,7 +1023,7 @@ impl GitApp {
         styles: Option<&DiffStyles>,
         row: SplitRow,
         ix: usize,
-        x: Pixels,
+        cut: Cut,
         ctx: DiffCtx,
         partial: bool,
         cx: &mut Context<Self>,
@@ -814,7 +1070,7 @@ impl GitApp {
                 .bg(bg)
                 .child(
                     div()
-                        .id(("split-gutter", i * 2 + usize::from(old)))
+                        .id(("split-gutter", cut.id(i) * 2 + usize::from(old)))
                         .w(px(SPLIT_NUM_W))
                         .h_full()
                         .flex_none()
@@ -831,16 +1087,20 @@ impl GitApp {
                                 }),
                             )
                         })
-                        .child(n.map(|n| n.to_string()).unwrap_or_default()),
+                        .child(
+                            n.filter(|_| cut.first())
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                        ),
                 )
-                .child(sign(kind, cx))
-                .child(code(line, i, styles, x, cx))
+                .child(sign(kind, cut.first(), cx))
+                .child(code(line, i, styles, cut, cx))
                 .into_any_element()
         };
         let l = half(left, true, cx);
         let r = half(right, false, cx);
         h_flex()
-            .id(("split", ix))
+            .id(("split", cut.id(ix)))
             .h(px(line_h))
             .w_full()
             .font_family(crate::theme::mono_font(cx))
@@ -894,9 +1154,11 @@ fn line_colors(kind: LineKind, selected: bool, cx: &App) -> (Hsla, Hsla) {
     }
 }
 
-fn sign(kind: LineKind, cx: &App) -> impl IntoElement {
+/// The sign of a line kind, on the `first` part of a line only.
+fn sign(kind: LineKind, first: bool, cx: &App) -> impl IntoElement {
     let t = cx.theme();
     let (text, color) = match kind {
+        _ if !first => ("", t.colors.muted_foreground),
         LineKind::Add => ("+", t.colors.green),
         LineKind::Del => ("−", t.colors.red),
         _ => ("", t.colors.muted_foreground),
@@ -921,19 +1183,38 @@ fn shown(text: &str) -> &str {
     &text[..end]
 }
 
-/// The line's text with syntax colors and changed-word backgrounds,
-/// scrolled `x` to the left.
-fn code(
-    line: &DiffLine,
-    i: usize,
-    styles: Option<&DiffStyles>,
-    x: Pixels,
-    cx: &App,
-) -> impl IntoElement {
+/// The part `cut` of line `i`, with syntax colors and changed-word
+/// backgrounds.
+fn code(line: &DiffLine, i: usize, styles: Option<&DiffStyles>, cut: Cut, cx: &App) -> Div {
     let t = cx.theme();
+    let color = match line.kind {
+        LineKind::Note => t.colors.muted_foreground,
+        _ => t.colors.foreground,
+    };
+    let column = div()
+        .flex_1()
+        .min_w_0()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_color(color);
     let text = shown(&line.text);
-    let len = text.len();
-    let clip = |r: &Range<usize>| (r.start < len).then(|| r.start..r.end.min(len));
+    let (part, ml) = match cut {
+        Cut::Scroll(x) => (Some(0..text.len()), -x),
+        Cut::Wrap {
+            wraps, part, space, ..
+        } => {
+            let indent = if part > 0 { wraps.breaks[i].1 } else { 0 };
+            (wraps.part(i, part, text.len()), space * indent as f32)
+        }
+    };
+    // A line with fewer parts than the other side of its row.
+    let Some(part) = part else {
+        return column;
+    };
+    let clip = |r: &Range<usize>| {
+        let (a, b) = (r.start.max(part.start), r.end.min(part.end));
+        (a < b).then(|| a - part.start..b - part.start)
+    };
     let mut spans: Vec<(Range<usize>, HighlightStyle)> = Vec::new();
     if let Some(st) = styles {
         let syntax = st
@@ -959,21 +1240,11 @@ fn code(
         });
         spans = combine_highlights(syntax, words).collect();
     }
-    let color = match line.kind {
-        LineKind::Note => t.colors.muted_foreground,
-        _ => t.colors.foreground,
-    };
-    div()
-        .flex_1()
-        .min_w_0()
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .text_color(color)
-        .child(
-            div()
-                .ml(-x)
-                .child(StyledText::new(text.to_string()).with_highlights(spans)),
-        )
+    column.child(
+        div()
+            .ml(ml)
+            .child(StyledText::new(text[part].to_string()).with_highlights(spans)),
+    )
 }
 
 /// A file row for lists: change badge, name, folder, counts.
@@ -1088,4 +1359,72 @@ pub(super) fn change_badge(change: git::Change, cx: &App) -> impl IntoElement {
         .text_size(px(10.))
         .font_weight(FontWeight::BOLD)
         .child(change.letter())
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: that brings in GPUI's `test` macro.
+    use super::{DiffLayout, DiffMode, WrapRows};
+    use crate::git::{DiffLine, FileChange, FileDiff, LineKind};
+
+    fn file(lines: &[(LineKind, &str)]) -> FileDiff {
+        FileDiff {
+            header: vec![],
+            path: "a.txt".into(),
+            old_path: None,
+            change: FileChange::Modified,
+            binary: false,
+            additions: 0,
+            deletions: 0,
+            lines: lines
+                .iter()
+                .map(|&(kind, text)| DiffLine {
+                    kind,
+                    old_no: None,
+                    new_no: None,
+                    text: text.into(),
+                })
+                .collect(),
+            truncated: false,
+        }
+    }
+
+    /// Breaks every 4 bytes, with the indent of the leading spaces.
+    fn by_four(line: &str) -> (Vec<usize>, u32) {
+        let indent = line.len() - line.trim_start().len();
+        ((4..line.len()).step_by(4).collect(), indent as u32)
+    }
+
+    #[test]
+    fn unified_rows_take_one_row_per_part() {
+        use LineKind::*;
+        let f = file(&[
+            (Hunk, "@@ a long hunk header @@"),
+            (Del, "abcdefghij"),
+            (Add, "abc"),
+        ]);
+        let wraps = WrapRows::new(
+            &f,
+            &DiffLayout::new(&f, DiffMode::Unified),
+            DiffMode::Unified,
+            by_four,
+        );
+        assert_eq!(wraps.rows, [(0, 0), (1, 0), (1, 1), (1, 2), (2, 0)]);
+        assert_eq!(wraps.first, [0, 1, 4]);
+        assert_eq!(wraps.part(1, 0, 10), Some(0..4));
+        assert_eq!(wraps.part(1, 2, 10), Some(8..10));
+        assert_eq!(wraps.part(1, 3, 10), None);
+    }
+
+    #[test]
+    fn split_rows_take_the_parts_of_their_longer_side() {
+        use LineKind::*;
+        let f = file(&[(Del, "abcdef"), (Add, "abcdefghijk"), (Context, "ab")]);
+        let layout = DiffLayout::new(&f, DiffMode::Split);
+        let wraps = WrapRows::new(&f, &layout, DiffMode::Split, by_four);
+        // The pair (Del, Add) takes the three parts of the added line.
+        assert_eq!(wraps.rows, [(0, 0), (0, 1), (0, 2), (1, 0)]);
+        assert_eq!(wraps.part(0, 1, 6), Some(4..6));
+        assert_eq!(wraps.part(0, 2, 6), None);
+    }
 }

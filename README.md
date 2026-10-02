@@ -81,6 +81,9 @@ palette and on the welcome screen.
 - Syntax colors for about 35 languages (tree-sitter).
 - Word-level highlights show exactly what changed inside a line.
 - Unified or split (side-by-side) view.
+- Long lines scroll sideways, or wrap: the wrap button beside
+  **Unified** / **Split**, **Toggle Word Wrap** in the command palette, or
+  View ▸ **Word Wrap in Diffs**.
 - Image files (PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, SVG) show as pictures:
   the old one beside the new one, each with its size in pixels and in bytes.
   An SVG file has a **Picture** / **Text** switch for its text diff.

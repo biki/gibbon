@@ -152,6 +152,7 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                     action("Show History", IconName::GitCommitVertical, ShowHistory),
                     action("Show All Branches", IconName::GitGraph, ShowAllBranches),
                     action("Show Activity", IconName::Activity, ShowActivity),
+                    action("Toggle Word Wrap", IconName::TextWrap, ToggleWordWrap),
                     action("Refresh", IconName::RotateCw, Refresh),
                 ]);
             }

@@ -30,7 +30,7 @@ use crate::highlight::{self, DiffStyles};
 use crate::{
     CleanUpBranches, CloneRepo, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull,
     Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches, ShowChanges, ShowHistory,
-    StashChanges, TogglePalette,
+    StashChanges, TogglePalette, ToggleWordWrap,
 };
 use files::FileRow;
 use hover::{Off as _, button, checkbox, hover_fill};

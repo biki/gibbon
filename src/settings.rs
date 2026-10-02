@@ -28,6 +28,8 @@ pub struct Settings {
     pub code_size: f32,
     /// Diffs open side by side.
     pub split_diff: bool,
+    /// Diffs wrap long lines, and do not scroll sideways.
+    pub wrap_diff: bool,
     /// SVG files show their text diff, not their pictures.
     pub svg_text: bool,
     /// Markdown files show rendered, not as their text diff.
@@ -65,6 +67,7 @@ impl Default for Settings {
             ui_size: 13.,
             code_size: 12.,
             split_diff: false,
+            wrap_diff: false,
             svg_text: false,
             markdown_rendered: false,
             file_tree: false,
