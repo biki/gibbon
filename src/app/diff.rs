@@ -151,18 +151,25 @@ struct ScrollState {
     split: Cell<bool>,
     /// The list has room below the rows for the horizontal scrollbar.
     room_below: Cell<bool>,
-    /// The path of the shown file: another file starts at the left.
-    path: RefCell<String>,
+    /// The source and the path of the shown file: another file starts at
+    /// the top left.
+    file: RefCell<(String, String)>,
     /// The axis of the current scroll gesture, locked as the list locks it.
     gesture: RefCell<OngoingScroll>,
 }
 
 impl DiffScroll {
-    fn set_file(&self, path: &str, text_w: Pixels, rows_h: Pixels, split: bool) {
+    /// `source` is what the file belongs to, such as a commit: the same path
+    /// in another commit is another file.
+    fn set_file(&self, source: &str, path: &str, text_w: Pixels, rows_h: Pixels, split: bool) {
         let s = &self.0;
-        if *s.path.borrow() != path {
-            *s.path.borrow_mut() = path.to_string();
+        let shown = s.file.borrow().0 == source && s.file.borrow().1 == path;
+        if !shown {
+            *s.file.borrow_mut() = (source.to_string(), path.to_string());
             s.x.set(px(0.));
+            let mut list = s.list.0.borrow_mut();
+            list.deferred_scroll_to_item = None;
+            list.base_handle.set_offset(point(px(0.), px(0.)));
         }
         s.text_w.set(text_w);
         s.rows_h.set(rows_h);
@@ -271,7 +278,8 @@ impl GitApp {
         memo: &mut Memo,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let (file, styles, ctx, id) = match self.view {
+        let sha = |d: &Option<Rc<CommitDetail>>| d.as_ref().map(|d| d.sha.clone());
+        let (file, styles, ctx, id, source) = match self.view {
             View::History => (
                 self.detail
                     .clone()
@@ -282,6 +290,7 @@ impl GitApp {
                     .and_then(|d| self.detail_styles.get(&d.sha, self.detail_file)),
                 DiffCtx::Commit,
                 "commit-diff",
+                sha(&self.detail),
             ),
             View::Stash(_) => (
                 self.stash_detail
@@ -293,16 +302,22 @@ impl GitApp {
                     .and_then(|d| self.stash_styles.get(&d.sha, self.stash_file)),
                 DiffCtx::Commit,
                 "stash-diff",
+                sha(&self.stash_detail),
             ),
-            View::Changes => (
-                self.change_diff.clone().map(DiffFile::Own),
-                self.change_styles.clone(),
-                match &self.change_sel {
-                    Some((_, true)) => DiffCtx::Staged,
-                    _ => DiffCtx::Unstaged,
-                },
-                "change-diff",
-            ),
+            View::Changes => {
+                let staged = matches!(self.change_sel, Some((_, true)));
+                (
+                    self.change_diff.clone().map(DiffFile::Own),
+                    self.change_styles.clone(),
+                    if staged {
+                        DiffCtx::Staged
+                    } else {
+                        DiffCtx::Unstaged
+                    },
+                    "change-diff",
+                    Some(staged.to_string()),
+                )
+            }
             View::Review => {
                 let ui = self.review.as_ref();
                 let d = ui.and_then(|r| Some((r.diff.clone()?, r.file)));
@@ -313,11 +328,15 @@ impl GitApp {
                     .filter(|(d, ix)| *ix < d.files.len())
                     .map(|(d, ix)| DiffFile::Of(d, ix));
                 let viewed = file.as_ref().and_then(|_| self.viewed_check(cx));
+                // Each load of the review is a new diff: the branch is the
+                // source, so a reload keeps the place.
+                let source = ui.map(|r| format!("{}...{}", r.base, r.target));
                 return self.render_diff(
                     file,
                     styles,
                     DiffCtx::Commit,
                     "review-diff",
+                    source.unwrap_or_default(),
                     viewed,
                     memo,
                     cx,
@@ -325,9 +344,11 @@ impl GitApp {
             }
             View::Rebase | View::Activity => return div().into_any_element(),
         };
-        self.render_diff(file, styles, ctx, id, None, memo, cx)
+        let source = source.unwrap_or_default();
+        self.render_diff(file, styles, ctx, id, source, None, memo, cx)
     }
 
+    /// `source` is what the file belongs to (see `DiffScroll::set_file`).
     /// `extra` goes in the header, before the view switch.
     #[allow(clippy::too_many_arguments)]
     fn render_diff(
@@ -336,6 +357,7 @@ impl GitApp {
         styles: Option<Rc<DiffStyles>>,
         ctx: DiffCtx,
         id: &'static str,
+        source: String,
         extra: Option<AnyElement>,
         memo: &mut Memo,
         cx: &mut Context<Self>,
@@ -453,7 +475,7 @@ impl GitApp {
         let body = if let Some(format) = picture {
             self.render_image_diff(&file, format, ctx, cx)
         } else if rendered {
-            self.render_markdown_diff(&file, ctx, cx)
+            self.render_markdown_diff(&file, ctx, &source, cx)
         } else if file.binary {
             note("Binary file, no text diff.").into_any_element()
         } else if file.lines.is_empty() {
@@ -472,6 +494,7 @@ impl GitApp {
                 .advance(font_id, px(size), 'm')
                 .map_or(px(size * 0.6), |a| a.width);
             scroll.set_file(
+                &source,
                 &file.path,
                 advance * layout.cols as f32,
                 px(line_h) * n as f32,

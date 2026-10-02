@@ -103,9 +103,10 @@ enum Side {
 /// The documents of the shown Markdown file.
 #[derive(Default)]
 pub(super) struct MarkdownPreview {
-    /// The path of the file. When only its content changes, the documents
-    /// stay and keep their scroll positions.
-    path: String,
+    /// The source and the path of the file (see `DiffScroll::set_file`).
+    /// When only its content changes, the documents stay and keep their
+    /// scroll positions.
+    file: (String, String),
     sources: Option<Sources>,
     /// None while the sides load.
     sides: Option<(Option<Side>, Option<Side>)>,
@@ -127,11 +128,13 @@ impl GitApp {
         &mut self,
         file: &FileDiff,
         ctx: DiffCtx,
+        source: &str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let sources = self.side_sources(file, ctx);
-        if self.markdown.path != file.path || self.markdown.sources.as_ref() != Some(&sources) {
-            self.load_markdown(file, sources, cx);
+        let shown = (source.to_string(), file.path.clone());
+        if self.markdown.file != shown || self.markdown.sources.as_ref() != Some(&sources) {
+            self.load_markdown(shown, sources, cx);
         }
         // The theme changed.
         if let Some((_, colors)) = &self.markdown.marks
@@ -172,11 +175,11 @@ impl GitApp {
             .into_any_element()
     }
 
-    fn load_markdown(&mut self, file: &FileDiff, sources: Sources, cx: &mut Context<Self>) {
-        if self.markdown.path != file.path {
+    fn load_markdown(&mut self, file: (String, String), sources: Sources, cx: &mut Context<Self>) {
+        if self.markdown.file != file {
             // The documents of another file start at the top.
             self.markdown = MarkdownPreview {
-                path: file.path.clone(),
+                file,
                 ..Default::default()
             };
         }
