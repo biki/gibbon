@@ -6,10 +6,13 @@
 //! lines keep their colors. Runs on the background executor.
 
 use std::ops::Range;
+use std::sync::Once;
 
 use gpui_kit::HighlightStyle;
 use gpui_kit::component::Rope;
-use gpui_kit::component::highlighter::{HighlightTheme, SyntaxHighlighter};
+use gpui_kit::component::highlighter::{
+    GrammarConfig, HighlightTheme, LanguageRegistry, SyntaxHighlighter,
+};
 use similar::{Algorithm, DiffOp};
 
 use crate::git::{FileDiff, LineKind};
@@ -83,6 +86,123 @@ pub fn language_for(path: &str) -> Option<&'static str> {
         _ => return None,
     })
 }
+
+/// Repair the grammars of the kit whose highlight queries are missing,
+/// incomplete or do not compile: their files had no colors, or only a few.
+/// Call it before the first highlight. Later calls do nothing.
+pub fn register_languages() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let registry = LanguageRegistry::singleton();
+        for config in repaired_languages(registry) {
+            registry.register(&config.name.clone(), &config);
+        }
+    });
+}
+
+fn repaired_languages(registry: &LanguageRegistry) -> Vec<GrammarConfig> {
+    let mut out = Vec::new();
+    // The JavaScript query of the kit has no JSX tags.
+    if let Some(mut js) = registry.language("javascript") {
+        js.highlights = format!(
+            "{}{}",
+            tree_sitter_javascript::JSX_HIGHLIGHT_QUERY,
+            js.highlights
+        )
+        .into();
+        out.push(js);
+    }
+    // The kit gives TSX only the TypeScript add-on query: no keywords,
+    // strings or comments. Use the full TypeScript query, plus JSX.
+    if let Some(ts) = registry.language("typescript") {
+        out.push(GrammarConfig {
+            name: "tsx".into(),
+            language: Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
+            highlights: format!(
+                "{}{}",
+                tree_sitter_javascript::JSX_HIGHLIGHT_QUERY,
+                ts.highlights
+            )
+            .into(),
+            ..ts
+        });
+    }
+    // The C++ query only adds to the C query.
+    if let Some(mut cpp) = registry.language("cpp") {
+        cpp.highlights = format!("{}{}", cpp.highlights, tree_sitter_c::HIGHLIGHT_QUERY).into();
+        out.push(cpp);
+    }
+    let own = |name: &str, language: tree_sitter::Language, highlights: &str| {
+        GrammarConfig::new(name, language, vec![], highlights, "", "")
+    };
+    // The Kotlin query of the kit names a node that its grammar lacks.
+    out.push(own(
+        "kotlin",
+        tree_sitter_kotlin_sg::LANGUAGE.into(),
+        tree_sitter_kotlin_sg::HIGHLIGHTS_QUERY,
+    ));
+    // The kit has no query for these.
+    out.push(own(
+        "swift",
+        tree_sitter_swift::LANGUAGE.into(),
+        tree_sitter_swift::HIGHLIGHTS_QUERY,
+    ));
+    out.push(own(
+        "csharp",
+        tree_sitter_c_sharp::LANGUAGE.into(),
+        tree_sitter_c_sharp::HIGHLIGHTS_QUERY,
+    ));
+    out.push(own(
+        "cmake",
+        tree_sitter_cmake::LANGUAGE.into(),
+        tree_sitter_cmake::HIGHLIGHTS_QUERY,
+    ));
+    // The grammars of these come without a query.
+    for (name, query) in [("proto", PROTO_QUERY), ("graphql", GRAPHQL_QUERY)] {
+        if let Some(language) = registry.language(name).and_then(|c| c.language) {
+            out.push(own(name, language, query));
+        }
+    }
+    out
+}
+
+const PROTO_QUERY: &str = r#"
+[
+  "syntax" "edition" "package" "import" "weak" "public" "option"
+  "message" "enum" "oneof" "map" "extend" "extensions" "service" "rpc"
+  "returns" "stream" "repeated" "optional" "required" "reserved" "to" "max"
+] @keyword
+[(key_type) (type) (message_name) (enum_name) (service_name)] @type
+(rpc_name) @function
+[(string) "\"proto2\"" "\"proto3\""] @string
+(escape_sequence) @string.escape
+[(int_lit) (float_lit)] @number
+[(true) (false)] @boolean
+(comment) @comment
+["(" ")" "[" "]" "{" "}" "<" ">"] @punctuation.bracket
+"#;
+
+const GRAPHQL_QUERY: &str = r#"
+[
+  "query" "mutation" "subscription" "fragment" "on" "type" "interface"
+  "union" "enum" "input" "scalar" "schema" "extend" "directive"
+  "implements" "repeatable"
+] @keyword
+(named_type (name) @type)
+(operation_definition (name) @function)
+(fragment_name (name) @function)
+(field (name) @property)
+(field_definition (name) @property)
+(argument (name) @attribute)
+(variable) @variable
+(directive "@" @attribute (name) @attribute)
+[(string_value) (description)] @string
+[(int_value) (float_value)] @number
+(boolean_value) @boolean
+[(null_value) (enum_value)] @constant
+(comment) @comment
+["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+"#;
 
 fn syntax(file: &FileDiff, theme: &HighlightTheme) -> Vec<Spans> {
     let n = file.lines.len();
@@ -255,6 +375,100 @@ pub fn changed_words(old: &str, new: &str) -> Option<WordRanges> {
 #[cfg(test)]
 mod tests {
     use super::{changed_words, language_for};
+    use gpui_kit::HighlightStyle;
+    use gpui_kit::component::highlighter::{HighlightTheme, LanguageRegistry};
+
+    /// The text of the colored spans of `text`.
+    fn colored(lang: &str, text: &str) -> Vec<String> {
+        super::register_languages();
+        let theme = HighlightTheme::default_dark();
+        super::highlight(lang, text, &theme)
+            .into_iter()
+            .filter(|(_, style)| *style != HighlightStyle::default())
+            .map(|(r, _)| text[r].to_string())
+            .collect()
+    }
+
+    #[test]
+    fn repaired_queries_compile() {
+        super::register_languages();
+        let registry = LanguageRegistry::singleton();
+        for config in super::repaired_languages(registry) {
+            let source = format!(
+                "{}{}{}",
+                config.injections, config.locals, config.highlights
+            );
+            let query = tree_sitter::Query::new(config.language.as_ref().unwrap(), &source);
+            assert!(query.is_ok(), "{}: {:?}", config.name, query.err());
+        }
+    }
+
+    #[test]
+    fn every_language_has_colors() {
+        let samples = [
+            (
+                "web/App.tsx",
+                "export function App() { return <div>\"hi\"</div>; } // c",
+            ),
+            (
+                "web/App.jsx",
+                "function App() { return <div>{1}</div>; } // c",
+            ),
+            ("web/app.ts", "export const x: number = 1; // c"),
+            ("src/main.rs", "fn main() {} // c"),
+            ("main.cpp", "int main() { return 0; } // c"),
+            ("main.c", "int main() { return 0; } // c"),
+            ("Main.kt", "fun main() { val s = \"s\" } // c"),
+            ("main.swift", "func main() { let s = \"s\" } // c"),
+            ("Main.cs", "class A { void F() { string s = \"s\"; } } // c"),
+            ("CMakeLists.txt", "set(A \"s\") # c"),
+            ("api.proto", "message A { string s = 1; } // c"),
+            ("schema.graphql", "query A { b(c: \"s\") { d } } # c"),
+            ("main.go", "package main\nfunc main() {} // c"),
+            ("main.py", "def f():\n    return 1  # c"),
+            ("a.rb", "def f\n  1 # c\nend"),
+            ("A.java", "class A { void f() {} } // c"),
+            ("a.php", "<?php function f() { return 1; } // c"),
+            ("A.scala", "object A { def f = \"s\" }"),
+            ("a.lua", "local function f() return 1 end -- c"),
+            ("a.zig", "pub fn main() void {} // c"),
+            ("a.ex", "defmodule A do\nend # c"),
+            ("a.sh", "f() { echo \"s\"; } # c"),
+            ("a.sql", "SELECT a FROM b; -- c"),
+            ("a.css", "a { color: red; } /* c */"),
+            ("a.html", "<div class=\"a\"></div>"),
+            ("a.json", "{\"a\": 1}"),
+            ("a.toml", "a = \"s\" # c"),
+            ("a.yaml", "a: \"s\" # c"),
+            ("a.md", "# Title\n"),
+            ("a.svelte", "<div class=\"a\"></div>"),
+            ("a.astro", "<div class=\"a\"></div>"),
+            ("a.erb", "<div><%= f %></div>"),
+            ("a.ejs", "<div><%= f %></div>"),
+            ("Makefile", "all: a.o"),
+        ];
+        for (path, text) in samples {
+            let lang = language_for(path).unwrap();
+            assert!(!colored(lang, text).is_empty(), "{path}: no colors");
+        }
+    }
+
+    #[test]
+    fn tsx_colors_keywords_strings_comments_and_tags() {
+        let words = colored(
+            "tsx",
+            "export function App(p: Props) { return <div className=\"a\">{p.x}</div>; } // c",
+        );
+        for word in ["export", "function", "return", "div", "\"a\"", "// c"] {
+            assert!(words.iter().any(|w| w == word), "{word} in {words:?}");
+        }
+    }
+
+    #[test]
+    fn proto_colors_the_syntax_version() {
+        let words = colored("proto", "syntax = \"proto3\";\n");
+        assert_eq!(words, ["syntax", "\"proto3\""]);
+    }
 
     #[test]
     fn word_diff_marks_only_the_change() {

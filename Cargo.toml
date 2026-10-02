@@ -18,6 +18,17 @@ serde_json = "1"
 similar = "3"
 notify = "8"
 ignore = "0.4"
+# The grammars come with gpui-kit. Gibbon names them to register fixed
+# highlight queries (src/highlight.rs). Keep the versions of Cargo.lock.
+tree-sitter = "0.26"
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-cmake = "0.7"
+tree-sitter-cpp = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-kotlin-sg = "0.4"
+tree-sitter-swift = "0.7"
+tree-sitter-typescript = "0.23"
 
 # Debug builds optimize the dependencies. Unoptimized, GPUI needs about six
 # times the work for each frame, and scrolling stutters. Gibbon itself stays

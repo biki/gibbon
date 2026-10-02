@@ -62,6 +62,7 @@ fn main() {
         unsafe { std::env::set_var("PATH", full) };
     }
     migrate_data_dir();
+    highlight::register_languages();
     // `gibbon <path>` opens that repository in a tab, next to the tabs of
     // the last session.
     let arg = std::env::args().nth(1).map(PathBuf::from);

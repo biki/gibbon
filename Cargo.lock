@@ -2135,6 +2135,15 @@ dependencies = [
  "serde",
  "serde_json",
  "similar",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cmake",
+ "tree-sitter-cpp",
+ "tree-sitter-javascript",
+ "tree-sitter-kotlin-sg",
+ "tree-sitter-swift",
+ "tree-sitter-typescript",
 ]
 
 [[package]]
