@@ -6,8 +6,9 @@
 //! same bundle id and the same signing certificate. Then the two apps swap
 //! places, and the new version runs from the next start.
 //!
-//! `cargo run` and an ad hoc build do not update. The requirement of an ad
-//! hoc signature is the hash of its own code, which no other build meets.
+//! Debug builds (`cargo run`, the dev loop) and ad hoc builds do not
+//! update. The requirement of an ad hoc signature is the hash of its own
+//! code, which no other build meets.
 
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt as _;
@@ -135,7 +136,11 @@ fn run() -> Result<Outcome> {
 }
 
 /// The app that runs: `…/Gibbon.app` of `…/Gibbon.app/Contents/MacOS/Gibbon`.
+/// None for debug builds: the bundle of the dev loop does not update.
 fn bundle() -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        return None;
+    }
     bundle_of(&std::env::current_exe().ok()?)
 }
 

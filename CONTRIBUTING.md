@@ -26,7 +26,9 @@ scripts/dev.sh ~/path/to/repo
 The loop rebuilds Gibbon and restarts it on every save to `src/` or
 `assets/` (about 2 seconds for a debug build). A failed build keeps the
 running app. Gibbon reopens on the same screen and leaves the focus in your
-editor. Quit Gibbon (<kbd>⌘</kbd><kbd>Q</kbd>) to end the loop.
+editor. Quit Gibbon (<kbd>⌘</kbd><kbd>Q</kbd>) to end the loop. Gibbon runs
+from `target/debug/Gibbon.app`, so the menu bar and the Dock show its name
+and icon.
 
 For visual tuning, <kbd>⌘</kbd><kbd>⌥</kbd><kbd>I</kbd> opens the GPUI
 inspector in debug builds. Pick an element and edit its style live, then copy

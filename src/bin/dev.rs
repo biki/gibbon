@@ -6,9 +6,11 @@
 //! - Restarts do not take focus from your editor; Gibbon reopens on the same
 //!   screen and at the same window place (see `src/session.rs`).
 //! - Quitting Gibbon (⌘Q) ends the loop. After a crash it waits for a fix.
+//! - Gibbon runs from `target/debug/Gibbon.app`, so the menu bar and the
+//!   Dock show its name and icon.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -17,6 +19,7 @@ use notify::{EventKind, RecursiveMode, Watcher};
 fn main() -> anyhow::Result<()> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let exe = make_bundle(&root)?;
 
     let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -38,7 +41,7 @@ fn main() -> anyhow::Result<()> {
                 let _ = old.kill();
                 let _ = old.wait();
             }
-            app = Some(start(&root, &args, first)?);
+            app = Some(start(&root, &exe, &args, first)?);
             first = false;
         } else if app.is_some() {
             println!("✗ Build failed. The running app stays; save a fix to try again.");
@@ -112,8 +115,53 @@ fn build(root: &Path) -> bool {
     ok
 }
 
-fn start(root: &Path, args: &[String], first: bool) -> anyhow::Result<Child> {
-    let mut cmd = Command::new(root.join("target/debug/gibbon"));
+/// A bare binary shows its file name, `gibbon`, in the menu bar and a
+/// generic icon in the Dock. macOS takes both from the bundle around the
+/// binary. Returns the place of the binary in the bundle.
+fn make_bundle(root: &Path) -> anyhow::Result<PathBuf> {
+    let contents = root.join("target/debug/Gibbon.app/Contents");
+    std::fs::create_dir_all(contents.join("MacOS"))?;
+    std::fs::create_dir_all(contents.join("Resources"))?;
+    std::fs::write(contents.join("Info.plist"), INFO_PLIST)?;
+    match make_icon(root) {
+        Some(icns) => {
+            std::fs::copy(icns, contents.join("Resources/Gibbon.icns"))?;
+        }
+        None => println!("✗ scripts/make-icon.sh failed. Gibbon gets no icon."),
+    }
+    Ok(contents.join("MacOS/Gibbon"))
+}
+
+/// Not the bundle id of the releases, so that macOS does not mix the two.
+const INFO_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Gibbon</string>
+  <key>CFBundleDisplayName</key><string>Gibbon</string>
+  <key>CFBundleIdentifier</key><string>dev.gibbon.Gibbon.debug</string>
+  <key>CFBundleExecutable</key><string>Gibbon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>Gibbon</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+"#;
+
+/// The icon of `scripts/bundle.sh`. The first run compiles its drawing.
+fn make_icon(root: &Path) -> Option<PathBuf> {
+    let out = Command::new(root.join("scripts/make-icon.sh"))
+        .stderr(Stdio::inherit())
+        .output()
+        .ok()?;
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    out.status.success().then(|| PathBuf::from(path))
+}
+
+fn start(root: &Path, exe: &Path, args: &[String], first: bool) -> anyhow::Result<Child> {
+    // A new file, not a write over the old one: macOS can kill a binary that
+    // changed in place, because it keeps the signature of the old one.
+    let _ = std::fs::remove_file(exe);
+    std::fs::copy(root.join("target/debug/gibbon"), exe)?;
+    let mut cmd = Command::new(exe);
     if first {
         cmd.args(args);
     } else {
