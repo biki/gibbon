@@ -139,6 +139,7 @@ impl GitApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let rows = keep(memo, || self.change_rows(cx));
+        let has_dirs = rows.iter().any(|r| matches!(r, Row::Dir { .. }));
         let (muted, border) = (cx.theme().colors.muted_foreground, cx.theme().colors.border);
         let n = rows.len();
         let staged = self.status.iter().filter(|e| e.staged.is_some()).count();
@@ -192,7 +193,7 @@ impl GitApp {
             .size_full()
             .border_r_1()
             .border_color(border)
-            .when(n > 0, |d| d.child(self.render_changes_bar(cx)))
+            .when(n > 0, |d| d.child(self.render_changes_bar(has_dirs, cx)))
             .when_some(self.paused, |d, p| {
                 d.child(self.render_paused_banner(p, cx))
             })
@@ -201,7 +202,8 @@ impl GitApp {
     }
 
     /// As tall as the diff header beside it.
-    fn render_changes_bar(&self, cx: &App) -> impl IntoElement {
+    fn render_changes_bar(&self, has_dirs: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let folders = self.folder_buttons(&["staged", "unstaged"], has_dirs, cx);
         let t = cx.theme();
         let n = self.status.len();
         h_flex()
@@ -220,7 +222,7 @@ impl GitApp {
                     .truncate()
                     .child(format!("{n} changed file{}", history::plural(n))),
             )
-            .child(files::change_view_buttons(cx))
+            .child(files::change_view_buttons(folders, cx))
     }
 
     fn render_paused_banner(&self, p: git::Paused, cx: &mut Context<Self>) -> impl IntoElement {

@@ -694,7 +694,10 @@ impl GitApp {
                     )
                 })
             });
-        let files_header = files::files_bar(&d.files, cx);
+        // A tree lists its folders first.
+        let has_dirs = matches!(memo.rows.first(), Some(FileRow::Dir(_)));
+        let folders = self.folder_buttons(&["commit"], has_dirs, cx);
+        let files_header = files::files_bar(&d.files, folders, cx);
         let rows = memo.rows.clone();
         let files = d.clone();
         let file_list = uniform_list(

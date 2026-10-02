@@ -582,6 +582,8 @@ impl GitApp {
         let rows = keep(memo, || {
             self.file_rows("review", &files::paths(&d.files), cx)
         });
+        // A tree lists its folders first.
+        let has_dirs = matches!(rows.first(), Some(FileRow::Dir(_)));
         let files = d.clone();
         let list = uniform_list(
             "review-files",
@@ -637,7 +639,7 @@ impl GitApp {
             .size_full()
             .child(
                 // As tall as the diff header beside it.
-                files::files_bar(&d.files, cx)
+                files::files_bar(&d.files, self.folder_buttons(&["review"], has_dirs, cx), cx)
                     .h(px(36.))
                     .border_b_1()
                     .border_color(border),

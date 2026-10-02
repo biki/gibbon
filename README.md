@@ -89,6 +89,8 @@ palette and on the welcome screen.
   changed text marked, and scrolls both to the first change.
 - Changed files show as a list sorted by name (A to Z or Z to A) or as a
   tree of folders. All file lists use the same choice.
+- In the tree, **Expand all folders** and **Collapse all folders** open or
+  close every folder of the list.
 - The Changes list can also show the most recent edits first, by the time of
   each file on disk. A file that is deleted while the tab is open counts from
   the time Gibbon sees it go. Files that were deleted before go last.

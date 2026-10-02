@@ -231,6 +231,86 @@ impl GitApp {
         cx.notify();
     }
 
+    /// The paths of the file list `scope`.
+    fn scope_paths(&self, scope: &str) -> Vec<&str> {
+        let detail = match scope {
+            "commit" => self.detail.as_ref(),
+            "stash" => self.stash_detail.as_ref(),
+            "review" => self.review.as_ref().and_then(|r| r.diff.as_ref()),
+            _ => {
+                return self
+                    .status
+                    .iter()
+                    .filter(|e| match scope {
+                        "staged" => e.staged.is_some(),
+                        _ => e.unstaged.is_some(),
+                    })
+                    .map(|e| e.path.as_str())
+                    .collect();
+            }
+        };
+        detail.map(|d| paths(&d.files)).unwrap_or_default()
+    }
+
+    /// Open or close all folders of the file lists `scopes`, the folders in
+    /// folders too.
+    fn set_all_dirs(&mut self, scopes: &[&'static str], collapse: bool, cx: &mut Context<Self>) {
+        let mut closed = Vec::new();
+        if collapse {
+            for &scope in scopes {
+                let rows = layout(
+                    &self.scope_paths(scope),
+                    true,
+                    Sort::Name { desc: false },
+                    &|_| false,
+                );
+                closed.extend(rows.into_iter().filter_map(|r| match r {
+                    FileRow::Dir(dir) => Some((scope, dir.key)),
+                    FileRow::File { .. } => None,
+                }));
+            }
+        }
+        self.collapsed_dirs
+            .retain(|(scope, _)| !scopes.contains(scope));
+        self.collapsed_dirs.extend(closed);
+        cx.notify();
+    }
+
+    /// The buttons that open and close all folders of the file lists
+    /// `scopes`, when the lists show folders.
+    pub(super) fn folder_buttons(
+        &self,
+        scopes: &'static [&'static str],
+        has_dirs: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let button = |id, icon, tip, collapse, cx: &mut Context<Self>| {
+            button(id).ghost().small().icon(icon).tooltip(tip).on_click(
+                cx.listener(move |this, _, _, cx| this.set_all_dirs(scopes, collapse, cx)),
+            )
+        };
+        has_dirs.then(|| {
+            h_flex()
+                .flex_none()
+                .gap_1()
+                .child(button(
+                    "folders-expand",
+                    IconName::ChevronsUpDown,
+                    "Expand all folders",
+                    false,
+                    cx,
+                ))
+                .child(button(
+                    "folders-collapse",
+                    IconName::ChevronsDownUp,
+                    "Collapse all folders",
+                    true,
+                    cx,
+                ))
+                .into_any_element()
+        })
+    }
+
     /// A folder row of the list `scope`: a click opens or closes it.
     pub(super) fn dir_row(
         &self,
@@ -284,8 +364,8 @@ impl GitApp {
 }
 
 /// The bar above the files of a commit or stash: count, line counts, and
-/// the view buttons.
-pub(super) fn files_bar(files: &[FileDiff], cx: &App) -> Div {
+/// the view buttons, after the `folders` buttons.
+pub(super) fn files_bar(files: &[FileDiff], folders: Option<AnyElement>, cx: &App) -> Div {
     let t = cx.theme();
     let adds: u32 = files.iter().map(|f| f.additions).sum();
     let dels: u32 = files.iter().map(|f| f.deletions).sum();
@@ -307,12 +387,12 @@ pub(super) fn files_bar(files: &[FileDiff], cx: &App) -> Div {
             d.child(div().text_color(t.colors.green).child(format!("+{adds}")))
                 .child(div().text_color(t.colors.red).child(format!("−{dels}")))
         })
-        .child(view_buttons(cx))
+        .child(view_buttons(folders, cx))
 }
 
 /// The sort button and the list or tree switch, for the bar above a file
 /// list. They change the settings, so every file list follows.
-pub(super) fn view_buttons(cx: &App) -> impl IntoElement {
+pub(super) fn view_buttons(folders: Option<AnyElement>, cx: &App) -> impl IntoElement {
     let desc = crate::settings::get(cx).file_sort_desc;
     let sort = button("files-sort")
         .ghost()
@@ -320,12 +400,12 @@ pub(super) fn view_buttons(cx: &App) -> impl IntoElement {
         .icon(name_icon(desc))
         .tooltip(name_tip(desc))
         .on_click(|_, _, cx| crate::settings::update(cx, |s| s.file_sort_desc = !s.file_sort_desc));
-    view_bar(sort, "List, sorted by name", cx)
+    view_bar(folders, sort, "List, sorted by name", cx)
 }
 
 /// `view_buttons` for the Changes list. Its sort button opens a menu: the
 /// names, or the most recent edits first.
-pub(super) fn change_view_buttons(cx: &App) -> impl IntoElement {
+pub(super) fn change_view_buttons(folders: Option<AnyElement>, cx: &App) -> impl IntoElement {
     let s = crate::settings::get(cx);
     let (recent, desc) = (s.changes_recent, s.file_sort_desc);
     let sort = button("changes-sort")
@@ -364,7 +444,7 @@ pub(super) fn change_view_buttons(cx: &App) -> impl IntoElement {
     } else {
         "List, sorted by name"
     };
-    view_bar(sort, list_tip, cx)
+    view_bar(folders, sort, list_tip, cx)
 }
 
 fn name_icon(desc: bool) -> IconName {
@@ -379,21 +459,31 @@ fn name_tip(desc: bool) -> &'static str {
     if desc { "Names Z to A" } else { "Names A to Z" }
 }
 
-/// `sort`, then the list or tree switch.
-fn view_bar(sort: impl IntoElement, list_tip: &'static str, cx: &App) -> impl IntoElement {
-    h_flex().flex_none().gap_1().child(sort).child(segmented(
-        "files-view",
-        &[
-            (Segment::Icon(IconName::List, list_tip), false),
-            (
-                Segment::Icon(IconName::ListTree, "Tree, grouped by folder"),
-                true,
-            ),
-        ],
-        crate::settings::get(cx).file_tree,
-        |tree, _, cx| crate::settings::update(cx, |s| s.file_tree = tree),
-        cx,
-    ))
+/// `folders`, `sort`, then the list or tree switch.
+fn view_bar(
+    folders: Option<AnyElement>,
+    sort: impl IntoElement,
+    list_tip: &'static str,
+    cx: &App,
+) -> impl IntoElement {
+    h_flex()
+        .flex_none()
+        .gap_1()
+        .children(folders)
+        .child(sort)
+        .child(segmented(
+            "files-view",
+            &[
+                (Segment::Icon(IconName::List, list_tip), false),
+                (
+                    Segment::Icon(IconName::ListTree, "Tree, grouped by folder"),
+                    true,
+                ),
+            ],
+            crate::settings::get(cx).file_tree,
+            |tree, _, cx| crate::settings::update(cx, |s| s.file_tree = tree),
+            cx,
+        ))
 }
 
 #[cfg(test)]
