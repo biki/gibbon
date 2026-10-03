@@ -2,8 +2,9 @@ name: Release
 
 # A tag v<version>, with the version in Cargo.toml, builds Gibbon.app, signs
 # it with the "Gibbon Release" certificate (scripts/make-signing-cert.sh) and
-# publishes it as Gibbon.zip in a GitHub release. Installed apps update from
-# the latest release.
+# publishes it as Gibbon.zip in a GitHub release. The section of the version
+# in CHANGELOG.md gives the release notes. Installed apps update from the
+# latest release.
 #
 # Secrets: RELEASE_CERTIFICATE (the .p12, base64) and
 # RELEASE_CERTIFICATE_PASSWORD.
@@ -34,6 +35,10 @@ jobs:
             echo "::error::The tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml."
             exit 1
           fi
+
+      # Before the build: a release without notes stops here.
+      - name: Release notes
+        run: scripts/changelog-notes.sh "${GITHUB_REF_NAME#v}" >"$RUNNER_TEMP/notes.md"
 
       # The toolchain of rust-toolchain.toml.
       - name: Rust
@@ -86,7 +91,7 @@ jobs:
           cd target/release/bundle
           ditto -c -k --keepParent Gibbon.app Gibbon.zip
           gh release create "$GITHUB_REF_NAME" Gibbon.zip --repo "$GITHUB_REPOSITORY" \
-            --title "Gibbon ${GITHUB_REF_NAME#v}" --generate-notes
+            --title "Gibbon ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Delete the keychain
         if: always()

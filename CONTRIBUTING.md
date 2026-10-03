@@ -154,7 +154,14 @@ Once, before the first release:
 
 For each release:
 
-1. Set the new `version` in `Cargo.toml`, run `cargo build` to update
-   `Cargo.lock`, and commit both: `chore: release 0.2.0`.
-2. Tag the commit and push the tag:
+1. In `CHANGELOG.md`, rename **Unreleased** to the version and the date,
+   `## [0.2.0] - 2026-10-03`, and add an empty **Unreleased** section above
+   it. Update the version links at the end of the file.
+2. Set the new `version` in `Cargo.toml`, run `cargo build` to update
+   `Cargo.lock`, and commit the three files: `chore: release 0.2.0`.
+3. Tag the commit and push the tag:
    `git tag v0.2.0 && git push origin v0.2.0`.
+
+The release notes are the section of the version in `CHANGELOG.md`
+(`scripts/changelog-notes.sh`). Without that section, the release stops
+before the build.
