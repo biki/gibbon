@@ -10,6 +10,9 @@ A native Git client for macOS in Rust on GPUI (gpui-kit). See README.md.
   `.githooks/commit-msg` hook runs it when `core.hooksPath` is `.githooks`.
 - One logical change per commit. Explain the why in the body when it is not
   obvious from the subject.
+- A change that users see adds its entry under Unreleased in CHANGELOG.md,
+  in the same commit: one line of 100 characters or less per feature or
+  fix (see CONTRIBUTING.md).
 
 ## Build and test
 

@@ -114,6 +114,19 @@ Git's own messages (`Merge …`, `Revert "…"`, `fixup! …`, `squash! …`) pa
 the check. In an emergency, `git commit --no-verify` skips the hook, but CI
 still checks the subject.
 
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+A change that users see gets an entry under **Unreleased**, in the same commit:
+
+- Put the entry under **Added**, **Changed**, **Deprecated**, **Removed**,
+  **Fixed** or **Security**.
+- Write one entry for each feature or fix, on one line of 100 characters or
+  less, with no period at the end.
+- Link the issue at the end with a short reference, `([#12])`, and add
+  `[#12]: https://github.com/biki/gibbon/issues/12` to the links at the end
+  of the file.
+
 ## Releases
 
 A tag `v<version>` publishes a release. The version must be the one in

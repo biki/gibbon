@@ -309,6 +309,8 @@ signature of the installed app. The new version runs when you click
 turns off the automatic checks. A build with an ad hoc signature does not
 update itself.
 
+[CHANGELOG.md](CHANGELOG.md) lists the changes of each version.
+
 ### Build from source
 
 Prerequisites:
