@@ -6,6 +6,8 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-03
+
 ### Added
 
 - Word wrap for diffs: a button beside Unified / Split, a palette command and a setting ([#2])
@@ -42,7 +44,8 @@ The first release: a native Git client for macOS, built on GPUI.
 - Light and dark themes, five color themes, and a choice of interface and code fonts
 - Automatic updates from the GitHub releases
 
-[Unreleased]: https://github.com/biki/gibbon/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/biki/gibbon/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/biki/gibbon/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/biki/gibbon/releases/tag/v0.1.0
 [#1]: https://github.com/biki/gibbon/issues/1
 [#2]: https://github.com/biki/gibbon/issues/2
