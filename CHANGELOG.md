@@ -9,6 +9,11 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Agents (⌘5): a card per worktree with its state, agent, last commit, newest files and lines
+- Worktree rows show a robot where a coding agent runs: green while it works, yellow when quiet
+
+### Changed
+
+- A worktree that stopped on a conflict has a red icon in the sidebar, not a yellow one
 
 ## [0.2.0] - 2026-10-03
 

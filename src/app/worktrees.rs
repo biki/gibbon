@@ -1,9 +1,11 @@
 //! Worktrees: a sidebar row per worktree with what it holds now, and
 //! removing a worktree. Agents often work in worktrees of their own, so the
-//! rows show their work while it happens.
+//! rows show their work while it happens. The icon of a row shows the state
+//! of its work (see `agents`): a robot where an agent runs.
 
 use gpui_kit::component::menu::ContextMenuExt as _;
 
+use super::agents::AgentState;
 use super::pulls::lines_tooltip;
 use super::sidebar::side_row;
 use super::*;
@@ -51,14 +53,19 @@ impl GitApp {
         let w = &self.worktrees[wi];
         let current = self.current_worktree == Some(wi);
         let info = self.worktree_info_of(w);
-        let (icon, color) = if w.prunable {
-            (IconName::FolderX, t.colors.red)
-        } else if info.is_some_and(|i| i.paused.is_some()) {
-            (IconName::GitMergeConflict, t.colors.yellow)
-        } else if current {
-            (IconName::FolderGit2, t.colors.primary)
+        let now = now();
+        let agent = !self.agents_in(w).is_empty();
+        let folder = if agent {
+            IconName::Bot
         } else {
-            (IconName::FolderGit2, muted)
+            IconName::FolderGit2
+        };
+        let (icon, color) = match self.worktree_state(w, now) {
+            Some(AgentState::Missing) => (IconName::FolderX, t.colors.red),
+            Some(AgentState::Conflict) => (IconName::GitMergeConflict, t.colors.red),
+            Some(s @ (AgentState::Working | AgentState::Quiet)) => (folder, s.color(cx)),
+            _ if current => (folder, t.colors.primary),
+            _ => (folder, muted),
         };
         let name = match w.branch_name() {
             Some(b) => b.to_string(),
@@ -67,7 +74,7 @@ impl GitApp {
         let changed = info.map_or(0, |i| i.changed);
         let ahead = info.map_or(0, |i| i.ahead);
         let age = info.filter(|i| i.active > 0).map(|i| fmt_age(i.active));
-        let tip = self.worktree_tip(w, info);
+        let tip = self.worktree_tip(w, info, now);
         let path = w.path.clone();
         let menu_wt = w.clone();
         let can_remove = !w.main && !current && !w.locked;
@@ -136,7 +143,12 @@ impl GitApp {
     }
 
     /// The lines of a worktree row's tooltip: its name, then its details.
-    fn worktree_tip(&self, w: &git::Worktree, info: Option<&git::WorktreeInfo>) -> Rc<Vec<String>> {
+    fn worktree_tip(
+        &self,
+        w: &git::Worktree,
+        info: Option<&git::WorktreeInfo>,
+        now: i64,
+    ) -> Rc<Vec<String>> {
         let title = match w.branch_name() {
             Some(b) => format!("{b} · {}", w.folder()),
             None => w.folder(),
@@ -146,6 +158,7 @@ impl GitApp {
             lines.push("The folder is gone. Right-click to forget it.".into());
             return Rc::new(lines);
         }
+        lines.extend(self.state_text(w, now));
         if let Some(i) = info {
             let base = self
                 .base
@@ -165,9 +178,6 @@ impl GitApp {
                 n => format!("{n} changed file{}", history::plural(n)),
             });
             lines.push(facts.join(" · "));
-            if let Some(p) = i.paused {
-                lines.push(format!("{} paused on a conflict", p.name()));
-            }
             if i.active > 0 {
                 lines.push(format!("Last change {}: {}", fmt_time(i.active), i.subject));
             }

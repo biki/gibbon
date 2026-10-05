@@ -167,6 +167,8 @@ one worktree, the sidebar lists them:
 - Right-click a row to browse its commits, review its changes, open it in
   Finder, copy its path, or remove it, with or without its branch. Gibbon
   asks first, and tells you how many changed files you lose.
+- A row shows a robot where a coding agent runs. The icon is green while
+  the worktree is *Working* and yellow while it is *Quiet* (see **Agents**).
 
 ### Agents
 
