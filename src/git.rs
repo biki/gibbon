@@ -1985,8 +1985,12 @@ impl RefMove {
     }
 }
 
+/// A reflog line: the old value (None when the line made the ref), the new
+/// value, the time and the message.
+type ReflogEntry = (Option<String>, String, i64, String);
+
 /// One reflog line: `<old> <new> <name> <<email>> <time> <tz>\t<message>`.
-fn parse_reflog_line(line: &str) -> Option<(Option<String>, String, i64, String)> {
+fn parse_reflog_line(line: &str) -> Option<ReflogEntry> {
     let (head, message) = line.split_once('\t').unwrap_or((line, ""));
     let mut parts = head.splitn(3, ' ');
     let old = parts.next()?;
@@ -2112,6 +2116,83 @@ pub fn ref_moves(repo: &Repo) -> Result<Vec<RefMove>> {
         .map(|(_, m)| m)
         .take(ACTIVITY_MAX)
         .collect())
+}
+
+/// The branch that each local branch was made from, by full ref name: the
+/// branch that an agent's worktree was spawned off, for example. Branches
+/// whose reflog does not tell are left out. `refs` are the branches that
+/// exist now, and `base` is the base branch.
+///
+/// The first reflog entry of a branch says "branch: Created from X". X is
+/// a branch name, `HEAD`, or a commit. For `HEAD` and a commit, the branch
+/// is the one that was at that commit at that time, from its own reflog.
+/// When more branches were there, the base branch wins, then the oldest
+/// local branch: a branch is older than the branches made from it.
+pub fn spawn_bases(
+    repo: &Repo,
+    refs: &HashSet<String>,
+    base: Option<&str>,
+) -> HashMap<String, String> {
+    let Ok(common) = common_dir(repo) else {
+        return HashMap::new();
+    };
+    let logs_dir = common.join("logs");
+    // The reflog of each branch that exists, oldest entry first.
+    let mut logs: Vec<(String, Vec<ReflogEntry>)> = vec![];
+    for sub in ["refs/heads", "refs/remotes"] {
+        for (rel, path) in files_under(&logs_dir.join(sub)) {
+            let refname = format!("{sub}/{rel}");
+            if !refs.contains(&refname) {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                let entries = text.lines().filter_map(parse_reflog_line).collect();
+                logs.push((refname, entries));
+            }
+        }
+    }
+    let mut bases = HashMap::new();
+    for (me, entries) in logs.iter().filter(|(r, _)| r.starts_with("refs/heads/")) {
+        let created = entries
+            .iter()
+            .find_map(|(_, new, time, msg)| Some((new, *time, msg.split_once("Created from ")?.1)));
+        let Some((start, time, from)) = created else {
+            continue;
+        };
+        let named = [format!("refs/heads/{from}"), format!("refs/remotes/{from}")]
+            .into_iter()
+            .find(|r| from != "HEAD" && r != me && refs.contains(r));
+        let found = named.or_else(|| branch_at(&logs, me, start, time, base));
+        if let Some(b) = found {
+            bases.insert(me.clone(), b);
+        }
+    }
+    bases
+}
+
+/// The branch other than `me` that pointed at `commit` at `time`, from the
+/// reflogs in `logs` (see `spawn_bases`).
+fn branch_at(
+    logs: &[(String, Vec<ReflogEntry>)],
+    me: &str,
+    commit: &str,
+    time: i64,
+    base: Option<&str>,
+) -> Option<String> {
+    let mut fits: Vec<(&str, i64)> = logs
+        .iter()
+        .filter(|(r, _)| r != me && !r.ends_with("/HEAD"))
+        .filter_map(|(r, entries)| {
+            let then = entries
+                .iter()
+                .take_while(|(_, _, t, _)| *t <= time)
+                .last()?;
+            (then.1 == commit).then(|| (r.as_str(), entries[0].2))
+        })
+        .collect();
+    // The base branch, then local before remote branches, oldest first.
+    fits.sort_by_key(|&(r, first)| (Some(r) != base, !r.starts_with("refs/heads/"), first, r));
+    fits.first().map(|(r, _)| r.to_string())
 }
 
 /// The commits that moving a ref from `old` to `new` added and dropped.
@@ -2701,6 +2782,56 @@ mod tests {
         remove_worktree(r, &wt.path, true).unwrap();
         assert!(!wt.path.exists());
         assert_eq!(worktrees(r).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_reflogs_tell_what_a_branch_was_made_from() {
+        let t = temp_repo("spawn-bases");
+        let r = &t.0;
+        // Each step at its own time: the reflog gets the committer date.
+        let at = |when: u32, args: &[&str]| {
+            let date = format!("@{when} +0000");
+            run_env(
+                &r.root,
+                args,
+                &[("GIT_COMMITTER_DATE", &date), ("GIT_AUTHOR_DATE", &date)],
+            )
+            .unwrap()
+        };
+        std::fs::write(r.root.join("a.txt"), "one\n").unwrap();
+        at(1000, &["add", "-A"]);
+        at(1000, &["commit", "-q", "-m", "one"]);
+        // "Created from HEAD": main was at that commit then.
+        at(1100, &["branch", "feature"]);
+        at(1150, &["switch", "-q", "feature"]);
+        std::fs::write(r.root.join("a.txt"), "two\n").unwrap();
+        at(1200, &["commit", "-q", "-am", "two"]);
+        // "Created from feature": a stacked branch.
+        at(1300, &["branch", "child", "feature"]);
+        // "Created from <commit>": feature and child were there, feature
+        // is older.
+        let tip = r.git(&["rev-parse", "HEAD"]).unwrap().trim().to_string();
+        let wt = r.root.join("agent-wt");
+        let wt = wt.to_string_lossy();
+        at(1400, &["worktree", "add", "-q", "-b", "agent", &wt, &tip]);
+        at(1450, &["switch", "-q", "main"]);
+        at(1500, &["branch", "late"]);
+        // Its branch is gone: the branch that was at its commit.
+        at(1600, &["branch", "orphan", "child"]);
+        at(1700, &["branch", "-D", "child"]);
+
+        let refs: HashSet<String> = branches(r)
+            .unwrap()
+            .into_iter()
+            .map(|b| b.refname)
+            .collect();
+        let bases = spawn_bases(r, &refs, Some("refs/heads/main"));
+        let of = |b: &str| bases.get(&format!("refs/heads/{b}")).map(String::as_str);
+        assert_eq!(of("feature"), Some("refs/heads/main"));
+        assert_eq!(of("agent"), Some("refs/heads/feature"));
+        assert_eq!(of("late"), Some("refs/heads/main"));
+        assert_eq!(of("orphan"), Some("refs/heads/feature"));
+        assert_eq!(of("main"), None, "made by the first commit");
     }
 
     #[test]

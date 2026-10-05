@@ -276,7 +276,7 @@ impl GitApp {
         let info = self.worktree_info.get(&w.path).map(|(_, i)| i);
         let agents = crate::agents::names(self.agents_in(w));
         let quiet = info.map(|i| fmt_time(i.active)).unwrap_or_default();
-        let base = self.base_name();
+        let base = self.base_name_of(w);
         Some(match state {
             AgentState::Missing => "The folder is gone.".to_string(),
             AgentState::Conflict => match info.and_then(|i| i.paused) {
@@ -302,14 +302,6 @@ impl GitApp {
                 format!("No changes: no commits ahead of {base}, and no uncommitted changes.")
             }
         })
-    }
-
-    /// The short name of the base branch, for texts.
-    fn base_name(&self) -> String {
-        self.base
-            .as_deref()
-            .map(|b| b.strip_prefix("refs/heads/").unwrap_or(b).to_string())
-            .unwrap_or_else(|| "the base branch".to_string())
     }
 
     pub(super) fn render_agents(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -549,7 +541,7 @@ impl GitApp {
             .text_color(t.colors.muted_foreground)
             .child(Icon::new(IconName::GitCommitHorizontal).size(px(13.)));
         if i.ahead == 0 && !on_base && w.head.is_some() {
-            return line.child(format!("No commits ahead of {} yet", self.base_name()));
+            return line.child(format!("No commits ahead of {} yet", self.base_name_of(w)));
         }
         line.child(
             div()
@@ -616,7 +608,7 @@ impl GitApp {
             (0, b) => Some(format!("↓{b}")),
             (a, b) => Some(format!("↑{a} ↓{b}")),
         };
-        let base = self.base_name();
+        let base = self.base_name_of(w);
         let track_tip = format!(
             "{} commit{} ahead of {base}, {} behind",
             i.ahead,

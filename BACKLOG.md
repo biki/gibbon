@@ -58,9 +58,12 @@ Agent branches often have many small commits, such as "fix lint" or
 
 Next steps:
 
-- **Uncommitted changes at start-up** — idea. A review that opens before the
-  worktree rows load does not see the worktree's changes, so the check starts
-  off. Only `GIBBON_REVIEW` hits this now.
+- **Uncommitted changes at start-up** — done. A review that opens before the
+  worktree rows load includes the worktree's files.
+- **The base of a review** — done. It is the base you chose for the branch
+  before, the base of its pull request, the branch it was made from (from
+  its reflog), or the base branch. The worktree rows and cards count
+  against it too.
 - **Commit list in the review** — idea. Show the commits of the branch beside
   the files, and filter the diff to one commit.
 - **Comments** — idea. Notes on lines that you can copy into a prompt for the

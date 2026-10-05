@@ -32,6 +32,8 @@ pub struct RepoState {
     /// The files marked as viewed, by the ref under review. Each is a path
     /// and a hash of its diff, so a file that changes again is not viewed.
     pub viewed: HashMap<String, Vec<String>>,
+    /// The base that you chose for the review of each branch.
+    pub review_bases: HashMap<String, String>,
     /// Moves of the branches after this time are new.
     pub activity_seen: Option<i64>,
 }

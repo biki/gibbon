@@ -2,6 +2,11 @@
 //! (`git diff base...branch`), with a Viewed check per file as on GitHub.
 //! A branch that a worktree has checked out can include that worktree's
 //! uncommitted changes: the work of an agent that has not committed yet.
+//!
+//! The base is the branch that the review should show the work against:
+//! the one you chose for the branch before, the base of its pull request,
+//! the branch it was made from (an agent's branch is often made from
+//! another agent's), or else the base branch of the repository.
 
 use std::ops::Range;
 
@@ -61,6 +66,20 @@ fn viewed_key(file: &FileDiff) -> String {
     format!("{}\0{hash:016x}", file.path)
 }
 
+/// Why a review compares with its base.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BaseWhy {
+    /// You chose it for this branch before.
+    Chosen,
+    /// The base of the branch's pull request.
+    PullRequest(u64),
+    /// The branch was made from it (see `git::spawn_bases`).
+    MadeFrom,
+    BaseBranch,
+    /// The checked-out branch, for a review of the base branch.
+    Head,
+}
+
 impl GitApp {
     /// The worktree that has `target` checked out, if any.
     pub(super) fn checkout_of(&self, target: &str) -> Option<&git::Worktree> {
@@ -85,20 +104,108 @@ impl GitApp {
         }
     }
 
-    /// The base to review `target` against: the base branch, or the
-    /// checked-out branch when `target` is the base branch.
-    fn review_base_for(&self, target: &str) -> Option<String> {
+    /// The worktree `w` has uncommitted changes, or its row has not loaded
+    /// yet: a review that opens at start-up then shows them too. A worktree
+    /// without changes shows the same diff either way.
+    fn may_have_changes(&self, w: &git::Worktree) -> bool {
+        let own = self
+            .current_worktree
+            .and_then(|i| self.worktrees.get(i))
+            .is_some_and(|c| c.path == w.path);
+        own && !self.status.is_empty()
+            || !own
+                && self
+                    .worktree_info
+                    .get(&w.path)
+                    .is_none_or(|(_, i)| i.changed > 0)
+    }
+
+    /// The base to review `target` against, and why (see the module
+    /// comment). A made-from branch that the base branch contains gives way
+    /// to the base branch: the diff is the same, and the base branch stays.
+    pub(super) fn review_base_for(&self, target: &str) -> Option<(String, BaseWhy)> {
+        let usable = |r: &String| r != target && self.branches.iter().any(|b| &b.refname == r);
+        if let Some(b) = self.review_bases.get(target).filter(|b| usable(b)) {
+            return Some((b.clone(), BaseWhy::Chosen));
+        }
+        let pr = target
+            .strip_prefix("refs/heads/")
+            .and_then(|name| self.pr_of_branch(name));
+        if let Some(p) = pr
+            && let Some(b) = self.pr_base_ref(p).filter(usable)
+        {
+            return Some((b, BaseWhy::PullRequest(p.number)));
+        }
+        if let Some(b) = self
+            .spawned
+            .get(target)
+            .filter(|b| usable(b) && !self.merged.contains(*b))
+        {
+            return Some((b.clone(), BaseWhy::MadeFrom));
+        }
         let head = self.head.branch.as_ref().map(|b| format!("refs/heads/{b}"));
         self.base
             .clone()
             .filter(|b| b != target)
-            .or(head.filter(|h| h != target))
+            .map(|b| (b, BaseWhy::BaseBranch))
+            .or(head.filter(|h| h != target).map(|h| (h, BaseWhy::Head)))
+    }
+
+    /// The base that the counts of the worktree `w` use: its review's base,
+    /// or the base branch for a worktree on the base branch.
+    pub(super) fn worktree_base(&self, w: &git::Worktree) -> Option<String> {
+        match &w.branch {
+            Some(b) if Some(b) != self.base.as_ref() => {
+                self.review_base_for(b).map(|(base, _)| base)
+            }
+            _ => self.base.clone(),
+        }
+    }
+
+    /// The short name of the base that the counts of `w` use, for texts.
+    pub(super) fn base_name_of(&self, w: &git::Worktree) -> String {
+        self.worktree_base(w)
+            .map(|b| short_ref(&b))
+            .unwrap_or_else(|| "the base branch".to_string())
+    }
+
+    /// The local branch of a pull request's base, else its remote branch.
+    fn pr_base_ref(&self, pr: &crate::github::PullRequest) -> Option<String> {
+        let local = format!("refs/heads/{}", pr.base);
+        self.branches
+            .iter()
+            .find(|b| b.refname == local)
+            .or_else(|| {
+                self.branches.iter().find(|b| {
+                    b.kind == RefKind::Remote
+                        && b.name.split_once('/').map(|(_, n)| n) == Some(pr.base.as_str())
+                })
+            })
+            .map(|b| b.refname.clone())
+    }
+
+    /// Why the shown review compares with its base, for the tooltip of the
+    /// base button.
+    fn base_tip(&self, ui: &ReviewUi) -> String {
+        let target = short_ref(&ui.target);
+        let base = short_ref(&ui.base);
+        let why = self
+            .review_base_for(&ui.target)
+            .filter(|(b, _)| *b == ui.base)
+            .map(|(_, why)| why);
+        match why {
+            Some(BaseWhy::Chosen) => format!("You chose {base} for {target}."),
+            Some(BaseWhy::PullRequest(n)) => format!("The base of pull request #{n}."),
+            Some(BaseWhy::MadeFrom) => format!("{target} was made from {base}."),
+            Some(BaseWhy::BaseBranch) => "The base branch of the repository.".to_string(),
+            Some(BaseWhy::Head) | None => format!("Compare {target} with another branch."),
+        }
     }
 
     /// Review `target` against the base branch. When a worktree has
     /// `target` checked out and has changes, the review includes them.
     pub(super) fn start_review(&mut self, target: String, cx: &mut Context<Self>) {
-        let Some(base) = self.review_base_for(&target) else {
+        let Some((base, _)) = self.review_base_for(&target) else {
             let msg = format!(
                 "{} is the base branch. Review another branch against it.",
                 short_ref(&target)
@@ -108,7 +215,7 @@ impl GitApp {
         };
         let worktree = self
             .checkout_of(&target)
-            .filter(|w| self.changed_in(w) > 0)
+            .filter(|w| self.may_have_changes(w))
             .map(|w| w.path.clone());
         self.open_review(target, base, worktree, cx);
     }
@@ -119,10 +226,10 @@ impl GitApp {
         let Some(target) = wt.branch.clone().or_else(|| wt.head.clone()) else {
             return;
         };
-        let Some(base) = self.review_base_for(&target) else {
+        let Some((base, _)) = self.review_base_for(&target) else {
             return self.start_review(target, cx);
         };
-        let worktree = (self.changed_in(wt) > 0).then(|| wt.path.clone());
+        let worktree = self.may_have_changes(wt).then(|| wt.path.clone());
         self.open_review(target, base, worktree, cx);
     }
 
@@ -132,19 +239,7 @@ impl GitApp {
         pr: &crate::github::PullRequest,
         cx: &mut Context<Self>,
     ) {
-        let local = format!("refs/heads/{}", pr.base);
-        let base = self
-            .branches
-            .iter()
-            .find(|b| b.refname == local)
-            .or_else(|| {
-                self.branches.iter().find(|b| {
-                    b.kind == RefKind::Remote
-                        && b.name.split_once('/').map(|(_, n)| n) == Some(pr.base.as_str())
-                })
-            })
-            .map(|b| b.refname.clone());
-        match base {
+        match self.pr_base_ref(pr) {
             Some(base) => self.open_review(pr.refname(), base, None, cx),
             None => self.start_review(pr.refname(), cx),
         }
@@ -243,13 +338,18 @@ impl GitApp {
         .detach();
     }
 
+    /// Compare the review with `base`, and keep that choice for its
+    /// branch: the next review of it starts there, and its worktree counts
+    /// against it.
     fn set_review_base(&mut self, base: String, cx: &mut Context<Self>) {
         if let Some(ui) = self.review.as_mut()
             && ui.base != base
         {
+            self.review_bases.insert(ui.target.clone(), base.clone());
             ui.base = base;
             ui.diff = None;
             self.load_review(cx);
+            self.load_worktree_info(false, cx);
             cx.notify();
         }
     }
@@ -544,6 +644,7 @@ impl GitApp {
         };
         let current = ui.base.clone();
         let target = ui.target.clone();
+        let tip = self.base_tip(ui);
         let choices: Vec<(String, String)> = self
             .branches
             .iter()
@@ -561,6 +662,7 @@ impl GitApp {
         button("review-base")
             .ghost()
             .small()
+            .tooltip(tip)
             .child(
                 h_flex()
                     .gap_1()

@@ -186,10 +186,7 @@ impl GitApp {
         }
         lines.extend(self.state_text(w, now));
         if let Some(i) = info {
-            let base = self
-                .base
-                .as_deref()
-                .map(|b| b.strip_prefix("refs/heads/").unwrap_or(b));
+            let base = self.worktree_base(w).map(|b| review::short_ref(&b));
             let mut facts = vec![];
             if let Some(base) = base.filter(|_| w.head.is_some()) {
                 facts.push(match (i.ahead, i.behind) {

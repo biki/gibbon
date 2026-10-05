@@ -12,11 +12,18 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Worktree rows show a robot where a coding agent runs: green while it works, yellow when quiet
 - A worktree's tab shows its branch, its changed files and its agent, next to its repository's tab
 - An Open Tab button in the review of a branch that another worktree has checked out
+- A review starts against the branch that its branch was made from, or its pull request's base
 
 ### Changed
 
 - A worktree that stopped on a conflict has a red icon in the sidebar, not a yellow one
 - A click on a worktree row reviews its work in this tab, and ⌘-click opens it in a new tab
+- Worktree rows and Agents cards count against the base of the worktree's review
+
+### Fixed
+
+- A review keeps the base that you chose for its branch, also when you open it again
+- A review that opens at start-up includes the uncommitted changes of its worktree
 
 ## [0.2.0] - 2026-10-03
 

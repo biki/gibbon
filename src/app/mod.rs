@@ -222,6 +222,12 @@ pub struct GitApp {
     review_epoch: u64,
     /// Files marked as viewed, by the ref under review (see `review`).
     viewed: HashMap<String, HashSet<String>>,
+    /// The base that you chose for the review of each branch, by full ref
+    /// name (see `review`).
+    review_bases: HashMap<String, String>,
+    /// The branch that each local branch was made from (see
+    /// `git::spawn_bases`).
+    spawned: HashMap<String, String>,
     /// A branch to review once the refs load (UI checks).
     check_review: Option<String>,
     /// The moves of the branches, newest first (see `activity`).
@@ -362,6 +368,8 @@ impl GitApp {
             review_styles: FileStyles::default(),
             review_epoch: 0,
             viewed: HashMap::new(),
+            review_bases: HashMap::new(),
+            spawned: HashMap::new(),
             check_review: None,
             moves: Rc::new(vec![]),
             move_counts: HashMap::new(),
@@ -479,9 +487,10 @@ impl GitApp {
         };
         cx.spawn(async move |this, cx| {
             let r = repo.clone();
-            let (head, branches, status, paused, stashes, worktrees, merged, dirs) = cx
+            let (head, branches, status, paused, stashes, worktrees, merged, dirs, spawned) = cx
                 .background_executor()
                 .spawn(async move {
+                    let branches = git::branches(&r);
                     let worktrees = git::worktrees(&r).map(|list| {
                         let own = r.root.canonicalize().unwrap_or_else(|_| r.root.clone());
                         let current = list.iter().position(|w| w.path == own);
@@ -497,15 +506,23 @@ impl GitApp {
                         let common = git::common_dir(&r).unwrap_or_else(|_| git_dir.clone());
                         (git_dir, common)
                     });
+                    let refs: HashSet<String> = branches
+                        .iter()
+                        .flatten()
+                        .map(|b| b.refname.clone())
+                        .collect();
+                    let base = worktrees.as_ref().ok().and_then(|(_, _, b)| b.clone());
+                    let spawned = git::spawn_bases(&r, &refs, base.as_deref());
                     (
                         git::head(&r),
-                        git::branches(&r),
+                        branches,
                         git::status(&r),
                         git::paused(&r),
                         git::stashes(&r),
                         worktrees,
                         merged,
                         dirs,
+                        spawned,
                     )
                 })
                 .await;
@@ -533,6 +550,7 @@ impl GitApp {
                     this.base = base;
                 }
                 this.merged = merged;
+                this.spawned = spawned;
                 let others: Vec<PathBuf> = this
                     .worktrees
                     .iter()
@@ -681,14 +699,14 @@ impl GitApp {
         }
         self.worktree_epoch += 1;
         let epoch = self.worktree_epoch;
-        let list: Vec<git::Worktree> = self
+        // Each worktree counts against the base of its review.
+        let list: Vec<(git::Worktree, Option<String>)> = self
             .worktrees
             .iter()
             .enumerate()
             .filter(|&(i, w)| !w.prunable && (!own_only || Some(i) == self.current_worktree))
-            .map(|(_, w)| w.clone())
+            .map(|(_, w)| (w.clone(), self.worktree_base(w)))
             .collect();
-        let base = self.base.clone();
         // Only the cards show the lines: counting them reads the new files.
         let lines = self.view == View::Agents;
         let scan = !own_only
@@ -703,8 +721,7 @@ impl GitApp {
             // One task per worktree: each runs `git status` in its folder.
             let tasks: Vec<_> = list
                 .into_iter()
-                .map(|wt| {
-                    let base = base.clone();
+                .map(|(wt, base)| {
                     cx.background_executor().spawn(async move {
                         let info = git::worktree_info(&wt, base.as_deref(), lines);
                         (wt.path, info)
@@ -1325,6 +1342,7 @@ impl GitApp {
                 worktree: r.worktree.clone(),
             }),
             viewed: self.viewed_to_save(),
+            review_bases: self.review_bases.clone(),
             activity_seen: self.activity_seen,
         })
     }
@@ -1338,6 +1356,7 @@ impl GitApp {
             return;
         };
         self.restored = true;
+        self.review_bases = s.review_bases;
         self.viewed = s
             .viewed
             .into_iter()

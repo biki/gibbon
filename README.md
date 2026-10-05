@@ -136,7 +136,17 @@ changed since it left its base (`git diff base...branch`).
 - Right-click a branch, a worktree or a pull request ▸ **Review Changes**, or
   click **Review Changes** while you browse a branch. The command palette has
   **Review …** too.
-- The base is the base branch. Choose another one in the header.
+- The base is the branch that the work should show against, in this order:
+  - the base that you chose for the branch before, in the header
+  - the base branch of the branch's pull request
+  - the branch it was made from. An agent's branch is often made from another
+    agent's branch, and against the base branch, its review would show the
+    work of both. Gibbon reads it from the branch's reflog. For a branch made
+    from `HEAD` or from a commit, it is the branch that was at that commit
+    at that time.
+  - the base branch of the repository
+- The tooltip of the base says why Gibbon chose it. The worktree rows and the
+  Agents cards count the commits and lines against the same base.
 - Mark each file as **Viewed**, in the list or above its diff. A file that
   changes again loses its mark. The marks stay after a restart.
 - When a worktree has the branch checked out, **Uncommitted changes** adds
