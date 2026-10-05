@@ -403,6 +403,16 @@ impl GitApp {
             }
         };
         let checkout = self.checkout_of(&ui.target).cloned();
+        // The worktree that has the branch checked out, when it is not this
+        // tab's: its own tab is one click away.
+        let own = self
+            .current_worktree
+            .and_then(|i| self.worktrees.get(i))
+            .map(|w| w.path.clone());
+        let open_tab = checkout
+            .as_ref()
+            .filter(|w| !w.prunable && Some(&w.path) != own.as_ref())
+            .map(|w| w.path.clone());
         let uncommitted = checkout
             .as_ref()
             .map(|w| (self.changed_in(w), ui.worktree.is_some()));
@@ -458,6 +468,18 @@ impl GitApp {
                         .on_click(cx.listener(|this, on: &bool, _, cx| {
                             this.set_review_uncommitted(*on, cx)
                         })),
+                )
+            })
+            .when_some(open_tab, |d, path| {
+                d.child(
+                    button("review-open-tab")
+                        .ghost()
+                        .small()
+                        .label("Open Tab")
+                        .tooltip("Open the worktree in a tab, on its Changes")
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.open_worktree(path.clone(), cx)),
+                        ),
                 )
             })
             .child(

@@ -11,10 +11,12 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Agents (⌘5): a card per worktree with its state, agent, last commit, newest files and lines
 - Worktree rows show a robot where a coding agent runs: green while it works, yellow when quiet
 - A worktree's tab shows its branch, its changed files and its agent, next to its repository's tab
+- An Open Tab button in the review of a branch that another worktree has checked out
 
 ### Changed
 
 - A worktree that stopped on a conflict has a red icon in the sidebar, not a yellow one
+- A click on a worktree row reviews its work in this tab, and ⌘-click opens it in a new tab
 
 ## [0.2.0] - 2026-10-03
 

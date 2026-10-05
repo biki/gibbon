@@ -18,7 +18,7 @@ edits in other worktrees.
   the number of changed files, the commits ahead of the base branch, and the
   time of the last change.
 - The rows update when an agent edits, stages or commits in a worktree.
-- Click a row to open that worktree in a tab, on its Changes view.
+- ⌘-click a row to open that worktree in a tab, on its Changes view.
 - Right-click a row to browse its commits, review its branch, open it in
   Finder, copy its path, or remove it (with or without its branch).
 - **Agents** (⌘5) — done (first version). A card per worktree: its state
@@ -27,6 +27,8 @@ edits in other worktrees.
   that changed last, the changed lines, and Review, Open Tab and Commits.
 - **Worktree tabs** — done. A worktree's tab shows its branch, its changed
   files and its state, and opens next to its repository's tabs.
+- **A look without a new tab** — done. A click on a row reviews the
+  worktree in this tab, and ⌘-click opens its tab.
 
 Next steps:
 

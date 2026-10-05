@@ -163,7 +163,10 @@ one worktree, the sidebar lists them:
   that the base branch does not have, and the time of its last change. The
   base branch is the default branch of the remote, else `main` or `master`.
 - The rows update while agents edit, stage and commit in their worktrees.
-- Click a row to open that worktree in a tab, on its Changes view.
+- Click a row to review the worktree's work in this tab: its branch and its
+  uncommitted changes as one diff. <kbd>⌘</kbd>-click a row to open the
+  worktree in a tab, on its Changes view. A worktree on the base branch
+  opens in a tab.
 - The tab of a worktree shows the last part of its branch name, its number
   of changed files, and the same icon as its row. A new worktree tab opens
   next to the tabs of its repository.

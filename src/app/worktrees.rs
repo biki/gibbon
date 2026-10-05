@@ -33,6 +33,23 @@ impl GitApp {
         }
     }
 
+    /// A click on the row of `w` reviews its work in this tab. The row of
+    /// this tab's own worktree shows its Changes instead, and a worktree on
+    /// the base branch opens in a tab: a review against itself is empty.
+    fn reviews_on_click(&self, w: &git::Worktree, current: bool) -> bool {
+        !current && !w.prunable && w.head.is_some() && (w.branch.is_none() || w.branch != self.base)
+    }
+
+    /// The review of `w` is shown.
+    fn review_shown(&self, w: &git::Worktree) -> bool {
+        let target = w.branch.as_ref().or(w.head.as_ref());
+        self.view == View::Review
+            && self
+                .review
+                .as_ref()
+                .is_some_and(|r| Some(&r.target) == target)
+    }
+
     /// A new tab of a worktree opens on its Changes: that is the agent's
     /// work in progress. A tab that was open before reopens where it was.
     pub(super) fn show_changes_if_new(&mut self, cx: &mut Context<Self>) {
@@ -74,14 +91,15 @@ impl GitApp {
         let changed = info.map_or(0, |i| i.changed);
         let ahead = info.map_or(0, |i| i.ahead);
         let age = info.filter(|i| i.active > 0).map(|i| fmt_age(i.active));
-        let tip = self.worktree_tip(w, info, now);
-        let path = w.path.clone();
-        let menu_wt = w.clone();
+        let review = self.reviews_on_click(w, current);
+        let tip = self.worktree_tip(w, info, current, now);
+        let (click_wt, menu_wt) = (w.clone(), w.clone());
         let can_remove = !w.main && !current && !w.locked;
         let this = cx.entity();
-        // Like the checked-out branch: bold, never filled. The Changes row
-        // above is this worktree's own.
-        side_row(ix, false, cx)
+        // This tab's own row is bold and never filled, like the checked-out
+        // branch: the Changes row above is its own. Another row is filled
+        // while its review shows.
+        side_row(ix, !current && self.review_shown(w), cx)
             .child(Icon::new(icon).size(px(14.)).text_color(color))
             .child(
                 div()
@@ -134,7 +152,13 @@ impl GitApp {
             .tooltip(lines_tooltip(tip))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, _, cx| this.open_worktree(path.clone(), cx)),
+                cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                    if review && !e.modifiers.platform {
+                        this.start_worktree_review(&click_wt, cx)
+                    } else {
+                        this.open_worktree(click_wt.path.clone(), cx)
+                    }
+                }),
             )
             .context_menu(move |menu, _, _| {
                 worktree_menu(menu, &menu_wt, current, can_remove, this.clone())
@@ -142,11 +166,13 @@ impl GitApp {
             .into_any_element()
     }
 
-    /// The lines of a worktree row's tooltip: its name, then its details.
+    /// The lines of a worktree row's tooltip: its name, its details, then
+    /// what a click does.
     fn worktree_tip(
         &self,
         w: &git::Worktree,
         info: Option<&git::WorktreeInfo>,
+        current: bool,
         now: i64,
     ) -> Rc<Vec<String>> {
         let title = match w.branch_name() {
@@ -189,6 +215,13 @@ impl GitApp {
         if w.locked {
             lines.push("Locked: Gibbon does not remove it.".into());
         }
+        lines.push(if current {
+            "Click to show its changes.".into()
+        } else if self.reviews_on_click(w, current) {
+            "Click to review its work here. ⌘-click to open it in a tab.".into()
+        } else {
+            "Click to open it in a tab.".into()
+        });
         Rc::new(lines)
     }
 
