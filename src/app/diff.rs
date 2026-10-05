@@ -532,7 +532,7 @@ impl GitApp {
                     cx,
                 );
             }
-            View::Rebase | View::Activity => return div().into_any_element(),
+            View::Rebase | View::Activity | View::Agents => return div().into_any_element(),
         };
         let source = source.unwrap_or_default();
         self.render_diff(file, styles, ctx, id, source, None, memo, cx)

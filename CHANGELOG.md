@@ -6,6 +6,10 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Agents (⌘5): a card per worktree with its state, agent, last commit, newest files and lines
+
 ## [0.2.0] - 2026-10-03
 
 ### Added

@@ -13,6 +13,8 @@ enum Row {
     History,
     All,
     Activity,
+    /// The cards of the worktrees: only with more than one.
+    Agents,
     Header {
         key: &'static str,
         label: &'static str,
@@ -145,6 +147,7 @@ impl GitApp {
         let needle = self.filter.read(cx).value().to_lowercase();
         let mut rows = vec![Row::Changes, Row::History, Row::All, Row::Activity];
         if self.has_worktrees() {
+            rows.push(Row::Agents);
             let matches: Vec<usize> = (0..self.worktrees.len())
                 .filter(|&i| {
                     let w = &self.worktrees[i];
@@ -418,6 +421,36 @@ impl GitApp {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.show_activity(cx)),
+                    )
+                    .into_any_element()
+            }
+            Row::Agents => {
+                let active = self.view == View::Agents;
+                let now = now();
+                let working = self.working_count(now);
+                let tip = self.agents_tip(now);
+                base(active)
+                    .child(Icon::new(IconName::Bot).size(px(15.)).text_color(muted))
+                    .child(label("Agents".into(), active))
+                    .when(working > 0, |d| {
+                        d.child(
+                            h_flex()
+                                .px_1p5()
+                                .gap_1()
+                                .rounded(px(9.))
+                                .bg(t.colors.green.opacity(0.16))
+                                .text_size(px(11.))
+                                .text_color(t.colors.green)
+                                .child(div().size(px(5.)).rounded_full().bg(t.colors.green))
+                                .child(working.to_string()),
+                        )
+                    })
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.show_agents(cx)),
                     )
                     .into_any_element()
             }

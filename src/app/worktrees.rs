@@ -19,7 +19,7 @@ impl GitApp {
     }
 
     /// Show the worktree at `path`: this tab's Changes, or its own tab.
-    fn open_worktree(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    pub(super) fn open_worktree(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let Some(ix) = self.worktrees.iter().position(|w| w.path == path) else {
             return;
         };
@@ -184,7 +184,7 @@ impl GitApp {
 
     /// Confirm, then remove the worktree, and with `with_branch` its
     /// branch. A worktree whose folder is gone is only forgotten.
-    fn remove_worktree_dialog(
+    pub(super) fn remove_worktree_dialog(
         &mut self,
         wt: git::Worktree,
         with_branch: bool,
@@ -288,7 +288,8 @@ impl GitApp {
     }
 }
 
-fn worktree_menu(
+/// The menu of a worktree's row and card.
+pub(super) fn worktree_menu(
     menu: gpui_kit::component::menu::PopupMenu,
     wt: &git::Worktree,
     current: bool,

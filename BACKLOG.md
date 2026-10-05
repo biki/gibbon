@@ -21,8 +21,20 @@ edits in other worktrees.
 - Click a row to open that worktree in a tab, on its Changes view.
 - Right-click a row to browse its commits, review its branch, open it in
   Finder, copy its path, or remove it (with or without its branch).
+- **Agents** (⌘5) — done (first version). A card per worktree: its state
+  (Working, Quiet, Idle, Ready to review, Conflict, No changes), the agent
+  that runs there (found with `ps` and `lsof`), the last commit, the files
+  that changed last, the changed lines, and Review, Open Tab and Commits.
 
 Next steps:
+
+- **Waiting for an answer** — idea. *Quiet* cannot tell an agent that waits
+  for you from one that runs a long command. The session files of Claude
+  Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) can tell.
+- **Overlap warning** — idea. Mark worktrees that change the same files;
+  `git merge-tree --write-tree` tells a real conflict from a clean overlap.
+- **Agents in other folders** — idea. Count an agent also for the worktrees
+  where the commands that it starts run.
 
 - **New Worktree…** — idea. Make a worktree and a branch from Gibbon, to
   start an agent in it.

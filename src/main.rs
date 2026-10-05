@@ -4,6 +4,7 @@ use gpui_kit::assets::AllAssets;
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
+mod agents;
 mod app;
 mod clone;
 mod fonts;
@@ -33,6 +34,7 @@ actions!(
         ShowHistory,
         ShowAllBranches,
         ShowActivity,
+        ShowAgents,
         Fetch,
         Pull,
         Push,
@@ -129,6 +131,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-2", ShowHistory, Some("GitApp")),
         KeyBinding::new("cmd-3", ShowAllBranches, Some("GitApp")),
         KeyBinding::new("cmd-4", ShowActivity, Some("GitApp")),
+        KeyBinding::new("cmd-5", ShowAgents, Some("GitApp")),
         KeyBinding::new("cmd-shift-f", Fetch, Some("GitApp")),
         KeyBinding::new("cmd-shift-p", Pull, Some("GitApp")),
         KeyBinding::new("cmd-p", Push, Some("GitApp")),
@@ -168,6 +171,7 @@ fn install_menus(cx: &mut App) {
             MenuItem::action("History", ShowHistory),
             MenuItem::action("All Branches", ShowAllBranches),
             MenuItem::action("Activity", ShowActivity),
+            MenuItem::action("Agents", ShowAgents),
             MenuItem::separator(),
             MenuItem::action("Word Wrap in Diffs", ToggleWordWrap),
             MenuItem::separator(),

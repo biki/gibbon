@@ -168,6 +168,33 @@ one worktree, the sidebar lists them:
   Finder, copy its path, or remove it, with or without its branch. Gibbon
   asks first, and tells you how many changed files you lose.
 
+### Agents
+
+**Agents** (<kbd>⌘</kbd><kbd>5</kbd>) shows a card for each worktree, side by
+side. The sidebar has this view when a repository has more than one
+worktree, and counts the worktrees that are *Working*.
+
+- A card shows the branch, the agent that runs in the worktree, the last
+  commit, the files that changed last, the commits ahead of and behind the
+  base branch, the changed lines and the pull request.
+- The state of each worktree:
+  - *Working*: its files or commits changed in the last two minutes.
+  - *Quiet*: an agent runs there, but nothing changed for two minutes or
+    more. It may wait for your answer, or run a long command.
+  - *Idle*: uncommitted changes, and no agent runs there.
+  - *Ready to review*: commits ahead of the base branch, no uncommitted
+    changes, and no agent runs there.
+  - *Conflict*: a cherry-pick, rebase or merge stopped on a conflict.
+  - *No changes*: no commits ahead of the base branch, and no uncommitted
+    changes.
+- **Review** shows the branch and its uncommitted changes as one diff.
+  **Open Tab** opens the worktree in a tab. **Commits** shows its commits, so
+  you can pick them into your branch. The **⋯** menu has the other actions
+  of the worktree.
+- Gibbon finds Claude Code, Codex, Cursor Agent, Gemini CLI, opencode, Aider,
+  Goose and Amp by the names of their programs, with `ps` and `lsof`. An
+  agent counts for the worktree that holds its working folder.
+
 ### Activity
 
 **Activity** (<kbd>⌘</kbd><kbd>4</kbd>) lists the moves of all branches in the
@@ -348,7 +375,7 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
 | Clone repository | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> |
 | Close tab | <kbd>⌘</kbd><kbd>W</kbd> |
 | Previous / next tab | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>[</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>]</kbd>, or <kbd>⌃</kbd><kbd>⇧</kbd><kbd>⇥</kbd> / <kbd>⌃</kbd><kbd>⇥</kbd> |
-| Changes / History / All branches / Activity | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> / <kbd>⌘</kbd><kbd>4</kbd> |
+| Changes / History / All branches / Activity / Agents | <kbd>⌘</kbd><kbd>1</kbd> / <kbd>⌘</kbd><kbd>2</kbd> / <kbd>⌘</kbd><kbd>3</kbd> / <kbd>⌘</kbd><kbd>4</kbd> / <kbd>⌘</kbd><kbd>5</kbd> |
 | Refresh | <kbd>⌘</kbd><kbd>R</kbd> |
 | Commit | <kbd>⌘</kbd><kbd>↵</kbd> |
 | New branch | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>N</kbd> |
@@ -380,6 +407,10 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
   reviews or the comments.
 - Activity reads the reflog files. A repository in the reftable format shows
   no moves. Git deletes the reflog of a deleted branch, so its moves go too.
+- Agents: an agent counts for the folder that its own process runs in. An
+  agent that runs in one worktree and edits the files of another counts for
+  the first one. An agent whose program is in a folder with a space in its
+  name is not found.
 - The releases have no Apple notarization and run on Apple Silicon only.
   Intel Macs must build Gibbon from source.
 
@@ -406,7 +437,7 @@ Environment variables for automated UI checks:
 | --- | --- |
 | `GIBBON_BACKGROUND=1` | Pop-up window that stays on top but never takes focus (GPUI stops painting hidden windows) |
 | `GIBBON_BROWSE=<branch or ref>` | Start in browse mode |
-| `GIBBON_VIEW=changes\|all\|activity` | Start in that view |
+| `GIBBON_VIEW=changes\|all\|activity\|agents` | Start in that view |
 | `GIBBON_FILE=<path>` | Select that changed file |
 | `GIBBON_DIFF=split` | Split diffs |
 | `GIBBON_REBASE=<sha>` | Open the rebase planner from that commit |

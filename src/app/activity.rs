@@ -587,8 +587,3 @@ fn move_menu(
     }
     menu
 }
-
-/// Seconds since 1970.
-fn now() -> i64 {
-    chrono::Local::now().timestamp()
-}

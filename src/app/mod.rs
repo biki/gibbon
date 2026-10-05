@@ -29,8 +29,8 @@ use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
 use crate::{
     CleanUpBranches, CloneRepo, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull,
-    Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAllBranches, ShowChanges, ShowHistory,
-    StashChanges, TogglePalette, ToggleWordWrap,
+    Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAgents, ShowAllBranches, ShowChanges,
+    ShowHistory, StashChanges, TogglePalette, ToggleWordWrap,
 };
 use files::FileRow;
 use hover::{Off as _, button, checkbox, hover_fill};
@@ -106,6 +106,9 @@ impl DiskChange {
 /// How often the worktree rows refresh without a change on disk, so their
 /// times stay right.
 const WORKTREE_TICK: std::time::Duration = std::time::Duration::from_secs(30);
+/// The shortest time between two looks for agent processes. Agents edit
+/// files often, and each edit reloads the worktree rows.
+const AGENT_SCAN_GAP: std::time::Duration = std::time::Duration::from_secs(10);
 /// How often the status of the pull requests reloads while checks run, and
 /// while none run. GitHub takes seconds for it, and counts the calls.
 const PR_TICK_RUNNING: std::time::Duration = std::time::Duration::from_secs(60);
@@ -114,6 +117,7 @@ const PR_TICK_IDLE: std::time::Duration = std::time::Duration::from_secs(300);
 const SHOWN_FETCH_GAP: std::time::Duration = std::time::Duration::from_secs(60);
 
 mod activity;
+mod agents;
 mod branches;
 mod changes;
 mod cleanup;
@@ -149,6 +153,8 @@ pub enum View {
     Review,
     /// The moves of all branches (see `activity`).
     Activity,
+    /// A card per worktree with what its agent does (see `agents`).
+    Agents,
 }
 
 pub struct GitApp {
@@ -191,6 +197,13 @@ pub struct GitApp {
     /// What each worktree holds, by its folder, with the load it came from.
     worktree_info: HashMap<PathBuf, (u64, git::WorktreeInfo)>,
     worktree_epoch: u64,
+    /// The coding agents that run in each worktree, by its folder, and the
+    /// load they came from.
+    agents: HashMap<PathBuf, Vec<crate::agents::Agent>>,
+    agents_epoch: u64,
+    /// When a load last looked for agent processes.
+    agents_scanned: Option<Instant>,
+    agents_scroll: ScrollHandle,
     /// The branch that others start from, a full ref name.
     base: Option<String>,
     /// The local branches that `base` contains, full ref names.
@@ -330,6 +343,10 @@ impl GitApp {
             current_worktree: None,
             worktree_info: HashMap::new(),
             worktree_epoch: 0,
+            agents: HashMap::new(),
+            agents_epoch: 0,
+            agents_scanned: None,
+            agents_scroll: ScrollHandle::new(),
             base: None,
             merged: HashSet::new(),
             cleanup: vec![],
@@ -652,7 +669,8 @@ impl GitApp {
     }
 
     /// Load what the worktrees hold, or with `own_only` what this tab's
-    /// worktree holds. A repository with one worktree shows no rows.
+    /// worktree holds. A load of all of them also looks for the agents that
+    /// run in them. A repository with one worktree shows no rows.
     fn load_worktree_info(&mut self, own_only: bool, cx: &mut Context<Self>) {
         if self.worktrees.len() < 2 {
             return;
@@ -667,6 +685,16 @@ impl GitApp {
             .map(|(_, w)| w.clone())
             .collect();
         let base = self.base.clone();
+        // Only the cards show the lines: counting them reads the new files.
+        let lines = self.view == View::Agents;
+        let scan = !own_only
+            && self
+                .agents_scanned
+                .is_none_or(|at| at.elapsed() >= AGENT_SCAN_GAP);
+        let paths: Option<Vec<PathBuf>> = scan.then(|| {
+            self.agents_scanned = Some(Instant::now());
+            self.worktrees.iter().map(|w| w.path.clone()).collect()
+        });
         cx.spawn(async move |this, cx| {
             // One task per worktree: each runs `git status` in its folder.
             let tasks: Vec<_> = list
@@ -674,22 +702,43 @@ impl GitApp {
                 .map(|wt| {
                     let base = base.clone();
                     cx.background_executor().spawn(async move {
-                        let info = git::worktree_info(&wt, base.as_deref());
+                        let info = git::worktree_info(&wt, base.as_deref(), lines);
                         (wt.path, info)
                     })
                 })
                 .collect();
+            let scan = paths.map(|paths| {
+                cx.background_executor().spawn(async move {
+                    let folders: Vec<&std::path::Path> =
+                        paths.iter().map(PathBuf::as_path).collect();
+                    crate::agents::by_worktree(&crate::agents::running(), &folders)
+                })
+            });
             let results = futures::future::join_all(tasks).await;
+            let agents = match scan {
+                Some(task) => Some(task.await),
+                None => None,
+            };
             let _ = this.update(cx, |this, cx| {
                 for (path, info) in results {
-                    let Ok(info) = info else {
+                    let Ok(mut info) = info else {
                         continue;
                     };
                     // A load that started later keeps its result.
                     let slot = this.worktree_info.entry(path).or_default();
                     if slot.0 < epoch {
+                        // A load without the lines keeps the last count.
+                        if !lines {
+                            info.lines = slot.1.lines;
+                        }
                         *slot = (epoch, info);
                     }
+                }
+                if let Some(agents) = agents
+                    && this.agents_epoch < epoch
+                {
+                    this.agents = agents;
+                    this.agents_epoch = epoch;
                 }
                 cx.notify();
             });
@@ -1244,6 +1293,7 @@ impl GitApp {
             View::Stash(n) => format!("stash:{n}"),
             View::Review if self.review.is_some() => "review".to_string(),
             View::Activity => "activity".to_string(),
+            View::Agents => "agents".to_string(),
             View::History | View::Rebase | View::Review => "history".to_string(),
         };
         let target = match &self.target {
@@ -1295,6 +1345,7 @@ impl GitApp {
             "changes" => View::Changes,
             "review" if self.review.is_some() => View::Review,
             "activity" => View::Activity,
+            "agents" => View::Agents,
             v => match v.strip_prefix("stash:").and_then(|n| n.parse().ok()) {
                 Some(n) => View::Stash(n),
                 None => View::History,
@@ -1313,7 +1364,7 @@ impl GitApp {
     }
 
     /// Start state for automated UI checks:
-    /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all|activity`,
+    /// `GIBBON_BROWSE=<branch>`, `GIBBON_VIEW=changes|all|activity|agents`,
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
     /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`, `GIBBON_REVIEW=<branch>`,
     /// `GIBBON_DIALOG=new-branch|stash|palette|settings|restore|cleanup`,
@@ -1327,6 +1378,7 @@ impl GitApp {
             Some("changes") => self.view = View::Changes,
             Some("all") => self.show_target(LogTarget::All, cx),
             Some("activity") => self.show_activity(cx),
+            Some("agents") => self.view = View::Agents,
             _ => {}
         }
         if let Some(f) = var("GIBBON_FILE") {
@@ -1861,6 +1913,7 @@ impl Render for GitApp {
                     View::Rebase => self.render_rebase(cx),
                     View::Review => self.render_review(cx),
                     View::Activity => self.render_activity(cx),
+                    View::Agents => self.render_agents(cx),
                 }))
                 .into_any_element(),
         };
@@ -1885,6 +1938,7 @@ impl Render for GitApp {
                 }),
             )
             .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show_activity(cx)))
+            .on_action(cx.listener(|this, _: &ShowAgents, _, cx| this.show_agents(cx)))
             .on_action(cx.listener(|this, _: &Fetch, _, cx| this.fetch(cx)))
             .on_action(cx.listener(|this, _: &Pull, _, cx| this.pull(cx)))
             .on_action(cx.listener(|this, _: &Push, _, cx| this.push(cx)))
@@ -2016,15 +2070,20 @@ fn split_panel(
     range: std::ops::Range<f32>,
     cx: &App,
 ) -> ResizablePanel {
-    let size = crate::settings::get(cx)
+    let size = split_size(id, default, range.clone(), cx);
+    resizable_panel()
+        .size(px(size))
+        .size_range(px(range.start)..px(range.end))
+}
+
+/// The size of the first panel of the split `id` (see `split_panel`).
+fn split_size(id: &'static str, default: f32, range: std::ops::Range<f32>, cx: &App) -> f32 {
+    crate::settings::get(cx)
         .panes
         .get(id)
         .copied()
         .unwrap_or(default)
-        .clamp(range.start, range.end);
-    resizable_panel()
-        .size(px(size))
-        .size_range(px(range.start)..px(range.end))
+        .clamp(range.start, range.end)
 }
 
 /// Cancel and a confirm button, right-aligned; both close the dialog.
@@ -2074,6 +2133,11 @@ fn fmt_int(n: usize) -> String {
         .map(|g| std::str::from_utf8(g).unwrap_or_default())
         .collect();
     groups.join(",")
+}
+
+/// Seconds since 1970.
+fn now() -> i64 {
+    chrono::Local::now().timestamp()
 }
 
 /// A short age for narrow rows: "now", "3m", "5h", "2d", then a date.

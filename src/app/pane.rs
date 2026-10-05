@@ -24,6 +24,8 @@ pub(super) enum Part {
     ReviewFiles,
     /// The timeline of the Activity view.
     Activity,
+    /// The cards of the Agents view.
+    Agents,
     /// The file list and the commit box of Changes.
     Changes,
     /// The diff of the shown view.
@@ -72,10 +74,10 @@ impl Pane {
 }
 
 impl Render for Pane {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (part, memo) = (self.part, &mut self.memo);
         self.app
-            .update(cx, |app, cx| app.render_part(part, memo, cx))
+            .update(cx, |app, cx| app.render_part(part, memo, window, cx))
             .unwrap_or_else(|_| div().into_any_element())
     }
 }
@@ -92,7 +94,13 @@ impl GitApp {
             .into_any_element()
     }
 
-    fn render_part(&mut self, part: Part, memo: &mut Memo, cx: &mut Context<Self>) -> AnyElement {
+    fn render_part(
+        &mut self,
+        part: Part,
+        memo: &mut Memo,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match part {
             Part::Sidebar => self.render_sidebar(memo, cx).into_any_element(),
             Part::Log => self.render_log(memo, cx).into_any_element(),
@@ -100,6 +108,7 @@ impl GitApp {
             Part::StashFiles => self.render_stash_files(memo, cx),
             Part::ReviewFiles => self.render_review_files(memo, cx),
             Part::Activity => self.render_moves(memo, cx),
+            Part::Agents => self.render_agent_cards(window, cx),
             Part::Changes => self.render_change_list(memo, cx).into_any_element(),
             Part::Diff => self.render_shown_diff(memo, cx),
         }

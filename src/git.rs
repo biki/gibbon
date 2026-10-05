@@ -1710,34 +1710,58 @@ pub struct WorktreeInfo {
     /// Commits of its HEAD that the base branch does not have, and the reverse.
     pub ahead: u32,
     pub behind: u32,
-    /// The subject of its HEAD commit.
+    /// The subject of its HEAD commit, and the time of that commit.
     pub subject: String,
+    pub committed: i64,
     /// The last change: the time of its HEAD commit or of its newest changed
     /// file, whichever is later.
     pub active: i64,
     /// A cherry-pick, rebase or merge stopped on a conflict there.
     pub paused: Option<Paused>,
+    /// The changed files that changed last, newest first: at most
+    /// `WORKTREE_FILES`.
+    pub recent: Vec<WorktreeFile>,
+    /// Lines added and deleted since HEAD left the base branch, with the
+    /// uncommitted changes. Only when asked for, and when there is a base.
+    pub lines: Option<(u32, u32)>,
 }
 
-/// How far `wt` is from `base` (a ref), and what changed in it.
-pub fn worktree_info(wt: &Worktree, base: Option<&str>) -> Result<WorktreeInfo> {
+/// A changed file of a worktree.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorktreeFile {
+    pub path: String,
+    pub change: Change,
+    /// When it changed on disk, in seconds since 1970. None when it is gone.
+    pub modified: Option<i64>,
+}
+
+/// Changed files that `WorktreeInfo::recent` holds at most.
+pub const WORKTREE_FILES: usize = 5;
+/// New files whose lines `WorktreeInfo::lines` counts at most, and the
+/// bytes that it reads of them. A count runs on each refresh.
+const COUNTED_NEW_FILES: usize = 100;
+const COUNTED_NEW_BYTES: u64 = 4 << 20;
+
+/// How far `wt` is from `base` (a ref), and what changed in it. With
+/// `lines`, also count the changed lines against `base`.
+pub fn worktree_info(wt: &Worktree, base: Option<&str>, lines: bool) -> Result<WorktreeInfo> {
     let r = wt.repo();
     let changes = status(&r)?;
     let mut info = WorktreeInfo {
         changed: changes.len(),
         paused: paused(&r),
+        recent: recent_files(&changes),
         ..Default::default()
     };
     if let Ok(out) = r.git(&["log", "-1", "--format=%ct%x1f%s", "HEAD"])
         && let Some((time, subject)) = out.trim_end().split_once('\x1f')
     {
-        info.active = time.parse().unwrap_or(0);
+        info.committed = time.parse().unwrap_or(0);
+        info.active = info.committed;
         info.subject = subject.to_string();
     }
-    if let Some(t) = changes.iter().filter_map(|e| e.modified).max()
-        && let Ok(d) = t.duration_since(std::time::UNIX_EPOCH)
-    {
-        info.active = info.active.max(d.as_secs() as i64);
+    if let Some(t) = info.recent.first().and_then(|f| f.modified) {
+        info.active = info.active.max(t);
     }
     if let Some(base) = base
         && wt.head.is_some()
@@ -1748,8 +1772,85 @@ pub fn worktree_info(wt: &Worktree, base: Option<&str>) -> Result<WorktreeInfo> 
             info.behind = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
             info.ahead = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         }
+        if lines {
+            info.lines = line_counts(&r, base, &changes);
+        }
     }
     Ok(info)
+}
+
+/// The files of `changes` that changed last, newest first. A deleted file
+/// has no time: it comes last.
+fn recent_files(changes: &[StatusEntry]) -> Vec<WorktreeFile> {
+    let secs = |t: SystemTime| {
+        t.duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() as i64)
+    };
+    let mut files: Vec<WorktreeFile> = changes
+        .iter()
+        .map(|e| WorktreeFile {
+            path: e.path.clone(),
+            change: e.unstaged.or(e.staged).unwrap_or(Change::Modified),
+            modified: e.modified.and_then(secs),
+        })
+        .collect();
+    // Stable: files of the same time keep the order of their names.
+    files.sort_by_key(|f| std::cmp::Reverse(f.modified));
+    files.truncate(WORKTREE_FILES);
+    files
+}
+
+/// Lines added and deleted from the commit that HEAD and `base` share to
+/// the files on disk, as the review counts them: the new files too, up to
+/// `COUNTED_NEW_FILES`. None when they share no commit.
+fn line_counts(r: &Repo, base: &str, changes: &[StatusEntry]) -> Option<(u32, u32)> {
+    let out = r
+        .git(&["diff", "--numstat", "-M", "--merge-base", base])
+        .ok()?;
+    let (mut adds, mut dels) = (0u32, 0u32);
+    for line in out.lines() {
+        let mut it = line.split('\t');
+        // A binary file has "-" for both: Git counts no lines in it.
+        if let (Some(Ok(a)), Some(Ok(d))) = (
+            it.next().map(str::parse::<u32>),
+            it.next().map(str::parse::<u32>),
+        ) {
+            adds = adds.saturating_add(a);
+            dels = dels.saturating_add(d);
+        }
+    }
+    let mut budget = COUNTED_NEW_BYTES;
+    let new = changes
+        .iter()
+        .filter(|e| e.unstaged == Some(Change::Untracked))
+        .take(COUNTED_NEW_FILES);
+    for e in new {
+        let path = r.root.join(&e.path);
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() || meta.len() > budget {
+            continue;
+        }
+        budget -= meta.len();
+        if let Ok(bytes) = std::fs::read(&path) {
+            adds = adds.saturating_add(text_lines(&bytes));
+        }
+    }
+    Some((adds, dels))
+}
+
+/// The lines of a text file as Git counts them: a last line without a line
+/// end counts too. A file with a NUL byte in its first 8000 bytes is binary,
+/// as for Git, and has none.
+fn text_lines(bytes: &[u8]) -> u32 {
+    if bytes[..bytes.len().min(8000)].contains(&0) {
+        return 0;
+    }
+    let ends = bytes.iter().filter(|&&b| b == b'\n').count();
+    let open = bytes.last().is_some_and(|&b| b != b'\n');
+    (ends + usize::from(open)) as u32
 }
 
 /// Remove a worktree and its folder. Git refuses when the worktree has
@@ -2569,11 +2670,31 @@ mod tests {
         let a = wt.repo();
         commit_file(&a, "b.txt", "one", "agent one");
         std::fs::write(wt.path.join("c.txt"), "new\n").unwrap();
-        let info = worktree_info(wt, Some("refs/heads/main")).unwrap();
+        let info = worktree_info(wt, Some("refs/heads/main"), false).unwrap();
         assert_eq!((info.changed, info.ahead, info.behind), (1, 1, 0));
         assert_eq!(info.subject, "agent one");
-        assert!(info.active > 0);
+        assert!(info.active > 0 && info.active >= info.committed);
         assert_eq!(info.paused, None);
+        assert_eq!(info.lines, None, "only when asked for");
+        let paths: Vec<&str> = info.recent.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["c.txt"]);
+        assert_eq!(info.recent[0].change, Change::Untracked);
+
+        // The lines count the commit, an uncommitted edit and the new
+        // files, but no binary file.
+        std::fs::write(wt.path.join("a.txt"), "base\nmore\n").unwrap();
+        std::fs::write(wt.path.join("d.txt"), "one\ntwo").unwrap();
+        std::fs::write(wt.path.join("e.bin"), b"\0\x01\n").unwrap();
+        let info = worktree_info(wt, Some("refs/heads/main"), true).unwrap();
+        assert_eq!(info.changed, 4);
+        assert_eq!(info.lines, Some((1 + 1 + 1 + 2, 0)));
+
+        // A deleted file has no time on disk: it comes last.
+        std::fs::remove_file(wt.path.join("b.txt")).unwrap();
+        let info = worktree_info(wt, Some("refs/heads/main"), true).unwrap();
+        assert_eq!(info.recent.len(), WORKTREE_FILES);
+        assert_eq!(info.recent.last().map(|f| f.path.as_str()), Some("b.txt"));
+        assert_eq!(info.lines, Some((1 + 1 + 2, 0)), "b.txt is gone again");
 
         // A changed worktree needs force.
         assert!(remove_worktree(r, &wt.path, false).is_err());
