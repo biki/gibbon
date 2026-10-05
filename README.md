@@ -164,6 +164,9 @@ one worktree, the sidebar lists them:
   base branch is the default branch of the remote, else `main` or `master`.
 - The rows update while agents edit, stage and commit in their worktrees.
 - Click a row to open that worktree in a tab, on its Changes view.
+- The tab of a worktree shows the last part of its branch name, its number
+  of changed files, and the same icon as its row. A new worktree tab opens
+  next to the tabs of its repository.
 - Right-click a row to browse its commits, review its changes, open it in
   Finder, copy its path, or remove it, with or without its branch. Gibbon
   asks first, and tells you how many changed files you lose.

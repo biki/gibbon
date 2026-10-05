@@ -5,13 +5,17 @@ use std::path::Path;
 
 use gpui_kit::component::menu::ContextMenuExt as _;
 
+use super::agents::{AgentState, TabLabel};
 use super::clone::{CloneDialog, Cloned};
+use super::pulls::lines_tooltip;
 use super::*;
 use crate::update::{Outcome, Updates};
 use crate::{CloseTab, NextTab, PrevTab};
 
 struct Tab {
     repo: Repo,
+    /// The real path of `repo.root`: the key of its label.
+    key: PathBuf,
     /// Made when the tab is first shown, so a restart loads only one tab.
     app: Option<Entity<GitApp>>,
     /// A git operation runs (`AppEvent::Busy`). Render reads this flag, not
@@ -20,11 +24,36 @@ struct Tab {
     _subs: Vec<Subscription>,
 }
 
+impl Tab {
+    fn new(repo: Repo) -> Self {
+        Tab {
+            key: repo
+                .root
+                .canonicalize()
+                .unwrap_or_else(|_| repo.root.clone()),
+            repo,
+            app: None,
+            busy: false,
+            _subs: vec![],
+        }
+    }
+}
+
+/// What a tab shows: its name, its icon and the color of the icon, and the
+/// number of changed files.
+#[derive(Clone)]
+struct Face {
+    name: SharedString,
+    icon: IconName,
+    color: Option<Hsla>,
+    changed: usize,
+}
+
 /// A tab while the pointer drags it. GPUI draws it under the pointer, and
 /// it stays in the tab strip: it moves only sideways, as far as the tabs go.
 #[derive(Clone)]
 struct DraggedTab {
-    name: SharedString,
+    face: Face,
     busy: bool,
     /// Where the pointer took the tab, from its top left corner.
     grab: Point<Pixels>,
@@ -50,11 +79,7 @@ impl Render for DraggedTab {
             .shadow_md()
             .font_family(crate::theme::ui_font(cx))
             .text_size(px(crate::settings::get(cx).ui_size))
-            .children(tab_label(
-                self.name.clone(),
-                self.busy,
-                cx.theme().colors.muted_foreground,
-            ))
+            .children(tab_label(&self.face, self.busy, cx))
     }
 }
 
@@ -71,6 +96,8 @@ pub struct Workspace {
     focus: FocusHandle,
     tabs: Vec<Tab>,
     active: usize,
+    /// What the tabs of worktrees show, by real path (see `TabLabel`).
+    labels: HashMap<PathBuf, TabLabel>,
     recent: Vec<PathBuf>,
     toasts: Vec<(Option<bool>, String)>,
     last_session: Option<Snapshot>,
@@ -94,6 +121,7 @@ impl Workspace {
             focus: cx.focus_handle(),
             tabs: vec![],
             active: 0,
+            labels: HashMap::new(),
             recent: crate::recent::load(),
             toasts: vec![],
             last_session: None,
@@ -115,17 +143,14 @@ impl Workspace {
             .tabs
             .into_iter()
             .filter(|root| root.is_dir())
-            .map(|root| Tab {
-                repo: Repo {
+            .map(|root| {
+                Tab::new(Repo {
                     name: root
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_else(|| root.display().to_string()),
                     root,
-                },
-                app: None,
-                busy: false,
-                _subs: vec![],
+                })
             })
             .collect();
         let start = match path {
@@ -185,6 +210,18 @@ impl Workspace {
 
     /// Show the repository that contains `path`: its tab, or a new tab.
     fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_after(path, None, window, cx);
+    }
+
+    /// Show the repository that contains `path`: its tab, or a new tab after
+    /// tab `after`, else at the end.
+    fn open_after(
+        &mut self,
+        path: PathBuf,
+        after: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let repo = match Repo::discover(&path) {
             Ok(repo) => repo,
             Err(e) => {
@@ -198,13 +235,9 @@ impl Workspace {
         let ix = match self.tabs.iter().position(|t| t.repo.root == repo.root) {
             Some(ix) => ix,
             None => {
-                self.tabs.push(Tab {
-                    repo,
-                    app: None,
-                    busy: false,
-                    _subs: vec![],
-                });
-                self.tabs.len() - 1
+                let ix = after.map_or(self.tabs.len(), |a| (a + 1).min(self.tabs.len()));
+                self.tabs.insert(ix, Tab::new(repo));
+                ix
             }
         };
         self.activate(ix, window, cx);
@@ -355,7 +388,10 @@ impl Workspace {
             AppEvent::Open(path) => self.open(path.clone(), window, cx),
             AppEvent::OpenWorktree(path) => {
                 let new = self.tab_of(path).is_none();
-                self.open(path.clone(), window, cx);
+                // Next to the last tab of the repository's worktrees.
+                let siblings = app.read(cx).worktree_paths();
+                let after = self.tabs.iter().rposition(|t| siblings.contains(&t.key));
+                self.open_after(path.clone(), after, window, cx);
                 if new && let Some(app) = self.active_app().cloned() {
                     app.update(cx, |app, cx| app.show_changes_if_new(cx));
                 }
@@ -363,6 +399,18 @@ impl Workspace {
             AppEvent::Forget(path) => {
                 if let Some(ix) = self.tab_of(path) {
                     self.close(ix, window, cx);
+                }
+            }
+            AppEvent::Labels(labels) => {
+                let mut changed = false;
+                for (path, label) in labels {
+                    if self.labels.get(path) != Some(label) {
+                        self.labels.insert(path.clone(), label.clone());
+                        changed = true;
+                    }
+                }
+                if changed {
+                    cx.notify();
                 }
             }
             AppEvent::Busy(busy) => {
@@ -460,17 +508,58 @@ impl Workspace {
         )
     }
 
+    /// What tab `ix` shows: the folder's name, or the branch of a linked
+    /// worktree, and the state of its work as in the sidebar. A tab has
+    /// room for the last part of a branch name only: `badges` of
+    /// `claude/badges`. The tooltip has the full name.
+    fn face(&self, ix: usize, cx: &App) -> Face {
+        let tab = &self.tabs[ix];
+        let Some(label) = self.labels.get(&tab.key) else {
+            return Face {
+                name: tab.repo.name.clone().into(),
+                icon: IconName::FolderGit2,
+                color: None,
+                changed: 0,
+            };
+        };
+        let (icon, color) = match label.state {
+            Some(AgentState::Conflict) => (IconName::GitMergeConflict, Some(cx.theme().colors.red)),
+            Some(s @ (AgentState::Working | AgentState::Quiet)) => (
+                if label.agent {
+                    IconName::Bot
+                } else {
+                    IconName::FolderGit2
+                },
+                Some(s.color(cx)),
+            ),
+            _ if label.agent => (IconName::Bot, None),
+            _ => (IconName::FolderGit2, None),
+        };
+        Face {
+            name: match &label.branch {
+                Some(b) => b.rsplit('/').next().unwrap_or(b).to_string().into(),
+                None => tab.repo.name.clone().into(),
+            },
+            icon,
+            color,
+            changed: label.changed,
+        }
+    }
+
     fn render_tab(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
         let t = cx.theme();
         let tab = &self.tabs[ix];
         let active = ix == self.active;
         let root = tab.repo.root.clone();
-        let path: SharedString = root.display().to_string().into();
-        let name: SharedString = tab.repo.name.clone().into();
+        let tip = Rc::new(match self.labels.get(&tab.key) {
+            Some(label) => label.tip.clone(),
+            None => vec![root.display().to_string()],
+        });
+        let face = self.face(ix, cx);
         // Its place stays empty while the pointer drags it.
         let dragged = self.dragged.as_ref().is_some_and(|(r, _)| *r == root);
         let drag = DraggedTab {
-            name: name.clone(),
+            face: face.clone(),
             busy: tab.busy,
             grab: Point::default(),
             start: Bounds::default(),
@@ -489,7 +578,7 @@ impl Workspace {
             .when(!active, |d| {
                 d.child(hover_fill(t.colors.list_hover, px(6.)))
             })
-            .children(tab_label(name, tab.busy, t.colors.muted_foreground))
+            .children(tab_label(&face, tab.busy, cx))
             .child(
                 div()
                     .flex_none()
@@ -510,9 +599,7 @@ impl Workspace {
                             })),
                     ),
             )
-            .tooltip(move |window, cx| {
-                gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
-            })
+            .tooltip(lines_tooltip(tip))
             .on_click(cx.listener(move |this, _, window, cx| this.activate(ix, window, cx)))
             // A drag moves the tab, not the window: the title bar moves the
             // window on a drag that starts in it.
@@ -744,14 +831,17 @@ fn tab_frame(filled: bool, cx: &App) -> Div {
         .when(!filled, |d| d.text_color(t.colors.muted_foreground))
 }
 
-/// A tab's icon and name. A spinner is the icon while a git operation runs.
-fn tab_label(name: SharedString, busy: bool, muted: Hsla) -> [AnyElement; 2] {
+/// A tab's icon, name and changed files. A spinner is the icon while a git
+/// operation runs.
+fn tab_label(face: &Face, busy: bool, cx: &App) -> [AnyElement; 3] {
+    let t = cx.theme();
+    let muted = t.colors.muted_foreground;
     let icon = if busy {
         busy_spinner(muted).into_any_element()
     } else {
-        Icon::new(IconName::FolderGit2)
+        Icon::new(face.icon)
             .size(px(13.))
-            .text_color(muted)
+            .text_color(face.color.unwrap_or(muted))
             .into_any_element()
     };
     [
@@ -760,7 +850,18 @@ fn tab_label(name: SharedString, busy: bool, muted: Hsla) -> [AnyElement; 2] {
             .flex_1()
             .min_w_0()
             .truncate()
-            .child(name)
+            .child(face.name.clone())
+            .into_any_element(),
+        div()
+            .flex_none()
+            .when(face.changed == 0, |d| d.hidden())
+            .px_1p5()
+            .rounded(px(9.))
+            .bg(t.colors.muted)
+            .text_size(px(10.5))
+            .font_weight(FontWeight::NORMAL)
+            .text_color(muted)
+            .child(face.changed.to_string())
             .into_any_element(),
     ]
 }

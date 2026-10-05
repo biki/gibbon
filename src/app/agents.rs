@@ -107,7 +107,107 @@ pub(super) fn agent_state(
     })
 }
 
+/// What the tab strip shows for the tab of a worktree (see `workspace`).
+/// The tab that loads the worktrees sends it for each of them, so a hidden
+/// tab shows the work that goes on in its worktree too.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TabLabel {
+    /// The branch of a linked worktree: it names the tab. A main worktree
+    /// keeps the name of its folder.
+    pub(super) branch: Option<String>,
+    pub(super) changed: usize,
+    /// An agent runs in the worktree.
+    pub(super) agent: bool,
+    pub(super) state: Option<AgentState>,
+    /// The lines of the tab's tooltip.
+    pub(super) tip: Vec<String>,
+}
+
 impl GitApp {
+    /// The labels of the tabs of this repository's worktrees, by folder.
+    fn tab_labels(&self, now: i64) -> Vec<(PathBuf, TabLabel)> {
+        let Some(repo) = &self.repo else {
+            return vec![];
+        };
+        let branch_tip = |folder: String, branch: Option<&str>| match branch {
+            Some(b) => format!("{folder} · {b}"),
+            None => folder,
+        };
+        if !self.has_worktrees() {
+            let root = repo
+                .root
+                .canonicalize()
+                .unwrap_or_else(|_| repo.root.clone());
+            let tip = vec![
+                branch_tip(repo.name.clone(), self.head.branch.as_deref()),
+                root.display().to_string(),
+            ];
+            let label = TabLabel {
+                branch: None,
+                changed: self.status.len(),
+                agent: false,
+                state: None,
+                tip,
+            };
+            return vec![(root, label)];
+        }
+        let main = self.worktrees[0].folder();
+        self.worktrees
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| !w.prunable)
+            .map(|(i, w)| {
+                // This tab's own status is fresher than its row's.
+                let changed = if Some(i) == self.current_worktree {
+                    self.status.len()
+                } else {
+                    self.worktree_info
+                        .get(&w.path)
+                        .map_or(0, |(_, i)| i.changed)
+                };
+                let branch = w.branch_name().filter(|_| !w.main).map(str::to_string);
+                let title = if w.main {
+                    branch_tip(w.folder(), w.branch_name())
+                } else {
+                    let name = branch
+                        .clone()
+                        .unwrap_or_else(|| format!("{} (detached)", w.folder()));
+                    format!("{name} · a worktree of {main}")
+                };
+                let mut tip = vec![title, w.path.display().to_string()];
+                tip.extend(self.state_text(w, now));
+                if changed > 0 {
+                    tip.push(format!(
+                        "{changed} changed file{}",
+                        history::plural(changed)
+                    ));
+                }
+                let label = TabLabel {
+                    branch,
+                    changed,
+                    agent: !self.agents_in(w).is_empty(),
+                    state: self.worktree_state(w, now),
+                    tip,
+                };
+                (w.path.clone(), label)
+            })
+            .collect()
+    }
+
+    /// Send the labels of the tabs to the window when they changed.
+    pub(super) fn send_tab_labels(&mut self, cx: &mut Context<Self>) {
+        let labels = self.tab_labels(now());
+        if labels != self.sent_labels {
+            self.sent_labels = labels.clone();
+            cx.emit(AppEvent::Labels(labels));
+        }
+    }
+
+    /// The folders of this repository's worktrees.
+    pub(super) fn worktree_paths(&self) -> Vec<PathBuf> {
+        self.worktrees.iter().map(|w| w.path.clone()).collect()
+    }
+
     /// Show the cards, with fresh counts.
     pub(super) fn show_agents(&mut self, cx: &mut Context<Self>) {
         if self.view != View::Agents {

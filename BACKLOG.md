@@ -25,6 +25,8 @@ edits in other worktrees.
   (Working, Quiet, Idle, Ready to review, Conflict, No changes), the agent
   that runs there (found with `ps` and `lsof`), the last commit, the files
   that changed last, the changed lines, and Review, Open Tab and Commits.
+- **Worktree tabs** — done. A worktree's tab shows its branch, its changed
+  files and its state, and opens next to its repository's tabs.
 
 Next steps:
 

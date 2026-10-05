@@ -204,6 +204,8 @@ pub struct GitApp {
     /// When a load last looked for agent processes.
     agents_scanned: Option<Instant>,
     agents_scroll: ScrollHandle,
+    /// The labels of the tabs that the window got last.
+    sent_labels: Vec<(PathBuf, agents::TabLabel)>,
     /// The branch that others start from, a full ref name.
     base: Option<String>,
     /// The local branches that `base` contains, full ref names.
@@ -347,6 +349,7 @@ impl GitApp {
             agents_epoch: 0,
             agents_scanned: None,
             agents_scroll: ScrollHandle::new(),
+            sent_labels: vec![],
             base: None,
             merged: HashSet::new(),
             cleanup: vec![],
@@ -541,6 +544,7 @@ impl GitApp {
                     this.start_watcher(dirs.map_err(|e| e.to_string()), others, cx);
                 }
                 this.load_worktree_info(false, cx);
+                this.send_tab_labels(cx);
                 if let Some(target) = this.check_review.take() {
                     this.start_review(target, cx);
                 } else if this.view == View::Review {
@@ -740,6 +744,7 @@ impl GitApp {
                     this.agents = agents;
                     this.agents_epoch = epoch;
                 }
+                this.send_tab_labels(cx);
                 cx.notify();
             });
         })
@@ -769,6 +774,7 @@ impl GitApp {
                 this.load_change_diff(cx);
                 // This worktree's row in the sidebar.
                 this.load_worktree_info(true, cx);
+                this.send_tab_labels(cx);
                 cx.notify();
             });
         })
@@ -1868,6 +1874,8 @@ pub(super) enum AppEvent {
     OpenWorktree(PathBuf),
     /// This worktree is gone: close its tab.
     Forget(PathBuf),
+    /// What the tabs of these worktrees show (see `agents::TabLabel`).
+    Labels(Vec<(PathBuf, agents::TabLabel)>),
     /// A git operation started (true) or ended (false).
     Busy(bool),
     /// Show a toast: success (true), error (false) or information (None).

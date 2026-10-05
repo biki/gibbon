@@ -10,6 +10,7 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Agents (⌘5): a card per worktree with its state, agent, last commit, newest files and lines
 - Worktree rows show a robot where a coding agent runs: green while it works, yellow when quiet
+- A worktree's tab shows its branch, its changed files and its agent, next to its repository's tab
 
 ### Changed
 
