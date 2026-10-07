@@ -6,6 +6,8 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-07
+
 ### Added
 
 - Agents (⌘5): a card per worktree with its state, agent, last commit, newest files and lines
@@ -63,7 +65,8 @@ The first release: a native Git client for macOS, built on GPUI.
 - Light and dark themes, five color themes, and a choice of interface and code fonts
 - Automatic updates from the GitHub releases
 
-[Unreleased]: https://github.com/biki/gibbon/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/biki/gibbon/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/biki/gibbon/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/biki/gibbon/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/biki/gibbon/releases/tag/v0.1.0
 [#1]: https://github.com/biki/gibbon/issues/1
