@@ -6,6 +6,10 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A diff hunk that starts inside a multi-line string or comment gets the right syntax colors
+
 ## [0.3.0] - 2026-10-07
 
 ### Added

@@ -304,7 +304,7 @@ impl GitApp {
                         .and_then(|p| detail.files.iter().position(|f| f.path == p))
                         .or_else(|| shown(&detail.files))
                         .unwrap_or(0);
-                    let styles = colors_with_text(&detail, ix, &theme);
+                    let styles = colors_with_text(&repo, worktree.as_deref(), &detail, ix, &theme);
                     anyhow::Ok((detail, keys, d.commits, d.more_new_files, ix, styles))
                 })
                 .await;

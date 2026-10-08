@@ -2,10 +2,13 @@
 //! changed words of paired removed / added lines.
 //!
 //! The old side (context + removed lines) and the new side (context + added
-//! lines) are highlighted as two texts, so strings and comments that span
-//! lines keep their colors. Runs on the background executor.
+//! lines) are highlighted as two texts: the whole file of each side, so that
+//! a hunk that starts inside a string or a comment gets the right colors.
+//! Without the file, the lines of the hunks make the text. Runs on the
+//! background executor.
 
 use std::ops::Range;
+use std::path::Path;
 use std::sync::Once;
 
 use gpui_kit::HighlightStyle;
@@ -15,7 +18,10 @@ use gpui_kit::component::highlighter::{
 };
 use similar::{Algorithm, DiffOp};
 
-use crate::git::{FileDiff, LineKind};
+use crate::git::{self, DiffLine, FileDiff, LineKind, Repo};
+
+/// Larger files get their colors from the lines of their hunks only.
+const MAX_FILE_BYTES: u64 = 2_000_000;
 
 pub type Spans = Vec<(Range<usize>, HighlightStyle)>;
 /// Changed byte ranges of the old line and of the new line.
@@ -29,11 +35,43 @@ pub struct DiffStyles {
     pub words: Vec<Vec<Range<usize>>>,
 }
 
-pub fn compute(file: &FileDiff, theme: &HighlightTheme) -> DiffStyles {
+/// The text of the old side and of the new side of a file. None for a side
+/// that does not exist or that could not be read.
+pub type Texts = (Option<String>, Option<String>);
+
+pub fn compute(file: &FileDiff, theme: &HighlightTheme, texts: &Texts) -> DiffStyles {
     DiffStyles {
-        syntax: syntax(file, theme),
+        syntax: syntax(file, theme, texts),
         words: words(file),
     }
+}
+
+/// The texts of both sides of `file`, for the files that have colors. Git
+/// does not store the new side of a diff against a worktree: with
+/// `worktree`, that side is the file on disk.
+pub fn texts(repo: &Repo, file: &FileDiff, worktree: Option<&Path>) -> Texts {
+    if file.binary || language_for(&file.path).is_none() {
+        return (None, None);
+    }
+    let (old, new) = file.blob_ids();
+    let blob = |id: &str| -> Option<String> {
+        if git::blob_size(repo, id).ok()? > MAX_FILE_BYTES {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&git::blob(repo, id).ok()?).into_owned())
+    };
+    let disk = |dir: &Path| -> Option<String> {
+        let path = dir.join(&file.path);
+        if std::fs::metadata(&path).ok()?.len() > MAX_FILE_BYTES {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&std::fs::read(path).ok()?).into_owned())
+    };
+    let new = new.and_then(|id| match worktree {
+        Some(dir) => disk(dir),
+        None => blob(id),
+    });
+    (old.and_then(blob), new)
 }
 
 /// The tree-sitter language for a path, if the kit has its grammar.
@@ -204,40 +242,121 @@ const GRAPHQL_QUERY: &str = r#"
 ["(" ")" "[" "]" "{" "}"] @punctuation.bracket
 "#;
 
-fn syntax(file: &FileDiff, theme: &HighlightTheme) -> Vec<Spans> {
+fn syntax(file: &FileDiff, theme: &HighlightTheme, texts: &Texts) -> Vec<Spans> {
     let n = file.lines.len();
-    let mut out = vec![Vec::new(); n];
     let Some(lang) = language_for(&file.path) else {
-        return out;
+        return vec![Vec::new(); n];
     };
-    let (mut old, mut new) = (String::new(), String::new());
-    let (mut old_at, mut new_at) = (vec![None; n], vec![None; n]);
-    for (i, line) in file.lines.iter().enumerate() {
-        match line.kind {
-            LineKind::Context => {
-                old_at[i] = Some(push_line(&mut old, &line.text));
-                new_at[i] = Some(push_line(&mut new, &line.text));
-            }
-            LineKind::Add => new_at[i] = Some(push_line(&mut new, &line.text)),
-            LineKind::Del => old_at[i] = Some(push_line(&mut old, &line.text)),
-            // Hunks are not adjacent: a blank line keeps them apart.
-            LineKind::Hunk => {
-                old.push('\n');
-                new.push('\n');
-            }
-            LineKind::Note => {}
+    let mut old = side_spans(file, Side::Old, texts.0.as_deref(), lang, theme);
+    let mut new = side_spans(file, Side::New, texts.1.as_deref(), lang, theme);
+    (0..n)
+        .map(|i| new[i].take().or_else(|| old[i].take()).unwrap_or_default())
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum Side {
+    Old,
+    New,
+}
+
+impl Side {
+    /// The number of `line` in the file of this side, when the line is on
+    /// this side.
+    fn line_no(self, line: &DiffLine) -> Option<u32> {
+        match (self, line.kind) {
+            (Side::Old, LineKind::Context | LineKind::Del) => line.old_no,
+            (Side::New, LineKind::Context | LineKind::Add) => line.new_no,
+            _ => None,
         }
     }
-    let old_styles = highlight(lang, &old, theme);
-    let new_styles = highlight(lang, &new, theme);
-    for i in 0..n {
-        out[i] = match (new_at[i].clone(), old_at[i].clone()) {
-            (Some(at), _) => slice(&new_styles, at),
-            (None, Some(at)) => slice(&old_styles, at),
-            (None, None) => continue,
-        };
+}
+
+/// The spans of the lines of one side, from the whole file when `text`
+/// agrees with the diff, else from the lines of the hunks.
+fn side_spans(
+    file: &FileDiff,
+    side: Side,
+    text: Option<&str>,
+    lang: &str,
+    theme: &HighlightTheme,
+) -> Vec<Option<Spans>> {
+    text.and_then(|t| file_spans(file, side, t, lang, theme))
+        .unwrap_or_else(|| hunk_spans(file, side, lang, theme))
+}
+
+/// None when a line of the diff is not in `text`: the file changed after
+/// the diff, or its bytes are not UTF-8.
+fn file_spans(
+    file: &FileDiff,
+    side: Side,
+    text: &str,
+    lang: &str,
+    theme: &HighlightTheme,
+) -> Option<Vec<Option<Spans>>> {
+    let mut lines = Vec::new();
+    let mut at = 0;
+    for line in text.split('\n') {
+        let body = line.strip_suffix('\r').unwrap_or(line);
+        lines.push(at..at + body.len());
+        at += line.len() + 1;
     }
-    out
+    let mut found = Vec::with_capacity(file.lines.len());
+    for line in &file.lines {
+        let range = match side.line_no(line) {
+            Some(no) => {
+                let range = lines.get((no as usize).checked_sub(1)?)?.clone();
+                // The diff shows a tab as four spaces.
+                if text[range.clone()].replace('\t', "    ") != line.text {
+                    return None;
+                }
+                Some(range)
+            }
+            None => None,
+        };
+        found.push(range);
+    }
+    let styles = highlight(lang, text, theme);
+    Some(
+        found
+            .into_iter()
+            .map(|range| range.map(|r| widen_tabs(&text[r.clone()], slice(&styles, r))))
+            .collect(),
+    )
+}
+
+/// `spans` of `line`, moved to where they are once each tab is four spaces.
+fn widen_tabs(line: &str, spans: Spans) -> Spans {
+    if !line.contains('\t') {
+        return spans;
+    }
+    let at = |i: usize| i + 3 * line.as_bytes()[..i].iter().filter(|&&b| b == b'\t').count();
+    spans
+        .into_iter()
+        .map(|(r, style)| (at(r.start)..at(r.end), style))
+        .collect()
+}
+
+/// The spans of the lines of one side, from the text of its hunks alone.
+fn hunk_spans(
+    file: &FileDiff,
+    side: Side,
+    lang: &str,
+    theme: &HighlightTheme,
+) -> Vec<Option<Spans>> {
+    let mut text = String::new();
+    let mut at = Vec::with_capacity(file.lines.len());
+    for line in &file.lines {
+        at.push(side.line_no(line).map(|_| push_line(&mut text, &line.text)));
+        // Hunks are not adjacent: a blank line keeps them apart.
+        if line.kind == LineKind::Hunk {
+            text.push('\n');
+        }
+    }
+    let styles = highlight(lang, &text, theme);
+    at.into_iter()
+        .map(|range| range.map(|r| slice(&styles, r)))
+        .collect()
 }
 
 fn push_line(buf: &mut String, line: &str) -> Range<usize> {
@@ -468,6 +587,53 @@ mod tests {
     fn proto_colors_the_syntax_version() {
         let words = colored("proto", "syntax = \"proto3\";\n");
         assert_eq!(words, ["syntax", "\"proto3\""]);
+    }
+
+    /// The colored text of each line of `patch`, highlighted with `texts`.
+    fn line_colors(patch: &str, texts: super::Texts) -> Vec<Vec<String>> {
+        super::register_languages();
+        let file = &crate::git::parse_patch(patch)[0];
+        let styles = super::compute(file, &HighlightTheme::default_dark(), &texts);
+        file.lines
+            .iter()
+            .zip(styles.syntax)
+            .map(|(line, spans)| {
+                spans
+                    .into_iter()
+                    .map(|(r, _)| line.text[r].to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A hunk that starts inside a docstring.
+    const DOCSTRING_PATCH: &str = "diff --git a/a.py b/a.py\nindex 1111111..2222222 100644\n\
+        --- a/a.py\n+++ b/a.py\n@@ -3,2 +3,3 @@ def f():\n     in the string\n     \"\"\"\n\
+        +    return 1\n";
+
+    #[test]
+    fn a_hunk_inside_a_string_gets_the_colors_of_the_file() {
+        let old = "def f():\n    \"\"\"Doc.\n    in the string\n    \"\"\"\n";
+        let new = format!("{old}    return 1\n");
+        let lines = line_colors(DOCSTRING_PATCH, (Some(old.into()), Some(new)));
+        assert_eq!(lines[1], ["    in the string"]);
+        // From the hunk alone, the closing quotes open a string.
+        assert_ne!(line_colors(DOCSTRING_PATCH, (None, None))[1], lines[1]);
+        assert!(lines[3].iter().any(|w| w == "return"), "{:?}", lines[3]);
+    }
+
+    #[test]
+    fn a_file_that_differs_from_the_diff_is_not_used() {
+        let lines = line_colors(DOCSTRING_PATCH, (None, Some("x = 1\n".into())));
+        assert_eq!(lines, line_colors(DOCSTRING_PATCH, (None, None)));
+    }
+
+    #[test]
+    fn tabs_move_the_colors_of_the_file() {
+        let patch = "diff --git a/a.py b/a.py\nindex 1111111..2222222 100644\n\
+            --- a/a.py\n+++ b/a.py\n@@ -1,0 +1,1 @@\n+\tx = \"s\"\n";
+        let lines = line_colors(patch, (None, Some("\tx = \"s\"\n".into())));
+        assert_eq!(lines[1], ["\"s\""]);
     }
 
     #[test]

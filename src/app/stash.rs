@@ -32,7 +32,7 @@ impl GitApp {
                 .spawn(async move {
                     let d = git::stash_detail(&repo, &stash)?;
                     let ix = shown(&d.files).unwrap_or(0);
-                    let styles = colors_with_text(&d, ix, &theme);
+                    let styles = colors_with_text(&repo, None, &d, ix, &theme);
                     anyhow::Ok((d, ix, styles))
                 })
                 .await;

@@ -915,7 +915,7 @@ impl GitApp {
                         .filter(|&i| i < d.files.len())
                         .or_else(|| shown(&d.files))
                         .unwrap_or(0);
-                    let styles = colors_with_text(&d, ix, &theme);
+                    let styles = colors_with_text(&repo, None, &d, ix, &theme);
                     anyhow::Ok((d, ix, styles))
                 })
                 .await;
@@ -1003,7 +1003,10 @@ impl GitApp {
                 .background_executor()
                 .spawn(async move {
                     let diff = git::file_diff(&repo, &entry, staged)?;
-                    let styles = diff.as_ref().map(|d| highlight::compute(d, &theme));
+                    let worktree = (!staged).then_some(repo.root.as_path());
+                    let styles = diff.as_ref().map(|d| {
+                        highlight::compute(d, &theme, &highlight::texts(&repo, d, worktree))
+                    });
                     anyhow::Ok((diff, styles))
                 })
                 .await;
@@ -1069,8 +1072,12 @@ impl GitApp {
         ix: usize,
         cx: &mut Context<Self>,
     ) {
-        let Some(file) = detail.files.get(ix) else {
+        let (Some(file), Some(repo)) = (detail.files.get(ix), self.repo.clone()) else {
             return;
+        };
+        let worktree = match of {
+            Shown::Review => self.review.as_ref().and_then(|r| r.worktree.clone()),
+            Shown::Commit | Shown::Stash => None,
         };
         let theme = cx.theme().highlight_theme.clone();
         let styles = self.file_styles(of);
@@ -1084,7 +1091,10 @@ impl GitApp {
         let task = cx.spawn(async move |this, cx| {
             let computed = cx
                 .background_executor()
-                .spawn(async move { highlight::compute(&file, &theme) })
+                .spawn(async move {
+                    let texts = highlight::texts(&repo, &file, worktree.as_deref());
+                    highlight::compute(&file, &theme, &texts)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 let styles = this.file_styles(of);
@@ -2140,14 +2150,17 @@ fn dialog_footer(
 }
 
 /// The styles of file `ix` of `detail`, when it is short enough to wait for
-/// (see `COLORS_WITH_TEXT`).
+/// (see `COLORS_WITH_TEXT`). `worktree` as in `highlight::texts`.
 fn colors_with_text(
+    repo: &Repo,
+    worktree: Option<&std::path::Path>,
     detail: &CommitDetail,
     ix: usize,
     theme: &gpui_kit::component::highlighter::HighlightTheme,
 ) -> Option<DiffStyles> {
     let file = detail.files.get(ix)?;
-    (file.lines.len() <= COLORS_WITH_TEXT).then(|| highlight::compute(file, theme))
+    (file.lines.len() <= COLORS_WITH_TEXT)
+        .then(|| highlight::compute(file, theme, &highlight::texts(repo, file, worktree)))
 }
 
 /// 1234567 -> "1,234,567".
