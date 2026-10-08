@@ -281,7 +281,9 @@ struct ScrollState {
     /// The axis of the current scroll gesture, locked as the list locks it.
     gesture: RefCell<OngoingScroll>,
     /// The rows on screen for wrapped lines, and what they were made for.
-    wraps: RefCell<Option<(WrapKey, Rc<WrapRows>)>>,
+    /// The file stays here so that no new diff gets its address, which
+    /// `WrapKey::content` is.
+    wraps: RefCell<Option<(WrapKey, DiffFile, Rc<WrapRows>)>>,
     /// The rows on screen of the last frame, None when lines did not wrap.
     shown_wraps: RefCell<Option<Rc<WrapRows>>>,
 }
@@ -314,15 +316,20 @@ impl DiffScroll {
     }
 
     /// The rows on screen for wrapped lines, made again when `key` changes.
-    fn wraps(&self, key: WrapKey, make: impl FnOnce() -> WrapRows) -> Rc<WrapRows> {
+    fn wraps(
+        &self,
+        key: WrapKey,
+        file: &DiffFile,
+        make: impl FnOnce() -> WrapRows,
+    ) -> Rc<WrapRows> {
         let mut cache = self.0.wraps.borrow_mut();
-        if let Some((k, rows)) = &*cache
+        if let Some((k, _, rows)) = &*cache
             && *k == key
         {
             return rows.clone();
         }
         let rows = Rc::new(make());
-        *cache = Some((key, rows.clone()));
+        *cache = Some((key, file.clone(), rows.clone()));
         rows
     }
 
@@ -359,7 +366,7 @@ impl DiffScroll {
     fn check_wrap(&self, window: &Window) {
         let shown = self.0.shown_wraps.borrow().is_some();
         if shown
-            && let Some((key, _)) = &*self.0.wraps.borrow()
+            && let Some((key, ..)) = &*self.0.wraps.borrow()
             && key.width != self.wrap_w()
         {
             window.request_animation_frame();
@@ -723,7 +730,7 @@ impl GitApp {
                     size: px(size),
                     width,
                 };
-                scroll.wraps(key, || {
+                scroll.wraps(key, &file, || {
                     // The wrapper of the text system, so that each part fits.
                     let mut wrapper = text.line_wrapper(mono.clone(), px(size));
                     WrapRows::new(&file, &layout, mode, |line| {

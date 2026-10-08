@@ -6,6 +6,10 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Wrapped diff lines no longer crash the app after a diff reloads
+
 ## [0.3.1] - 2026-10-08
 
 ### Fixed
