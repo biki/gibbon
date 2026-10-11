@@ -739,7 +739,11 @@ impl GitApp {
                         }
                         let mut indent = 0;
                         let breaks = wrapper
-                            .wrap_line(&[LineFragment::text(line)], width)
+                            .wrap_line(
+                                &[LineFragment::text(line)],
+                                width,
+                                IndentAdjustment::SameIndent,
+                            )
                             .map(|b| {
                                 indent = b.next_indent;
                                 b.ix
