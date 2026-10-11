@@ -52,9 +52,6 @@ struct Doc {
     state: Entity<TextViewState>,
     /// The Markdown text that `state` shows.
     text: String,
-    /// The rendered text from before the last change of `text`, while the
-    /// view parses the new text in the background.
-    stale: Option<RenderedText>,
 }
 
 impl Doc {
@@ -63,7 +60,6 @@ impl Doc {
         let mut doc = Doc {
             state,
             text: String::new(),
-            stale: None,
         };
         doc.set_text(text, cx);
         doc
@@ -75,21 +71,14 @@ impl Doc {
         if self.text == text {
             return;
         }
-        let before = self.state.read(cx).rendered_text();
         self.state.update(cx, |state, cx| state.set_text(&text, cx));
-        let parsed = self.state.read(cx).rendered_text() != before;
-        self.stale = (!parsed).then_some(before);
         self.text = text;
     }
 
     /// The rendered text, when the view has parsed the current text.
-    fn rendered(&mut self, cx: &App) -> Option<RenderedText> {
+    fn rendered(&self, cx: &App) -> Option<RenderedText> {
         let now = self.state.read(cx).rendered_text();
-        if self.stale.as_ref() == Some(&now) {
-            return None;
-        }
-        self.stale = None;
-        Some(now)
+        (now.source() == self.text).then_some(now)
     }
 }
 
@@ -227,7 +216,7 @@ impl GitApp {
     /// text. The views notify for each parse.
     fn mark_markdown(&mut self, cx: &mut Context<Self>) {
         let md = &mut self.markdown;
-        let Some((Some(Side::Doc(old)), Some(Side::Doc(new)))) = &mut md.sides else {
+        let Some((Some(Side::Doc(old)), Some(Side::Doc(new)))) = &md.sides else {
             return;
         };
         let (Some(o), Some(n)) = (old.rendered(cx), new.rendered(cx)) else {
