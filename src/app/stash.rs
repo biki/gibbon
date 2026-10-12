@@ -174,7 +174,7 @@ impl GitApp {
             .child(
                 button("stash-drop")
                     .ghost()
-                    .small()
+                    .large()
                     .label("Drop…")
                     .off(busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -183,7 +183,7 @@ impl GitApp {
             )
             .child(
                 button("stash-apply")
-                    .small()
+                    .large()
                     .label("Apply")
                     .tooltip("Apply the changes and keep the stash")
                     .off(busy)
@@ -192,7 +192,7 @@ impl GitApp {
             .child(
                 button("stash-pop")
                     .primary()
-                    .small()
+                    .large()
                     .label("Pop")
                     .tooltip("Apply the changes and delete the stash")
                     .off(busy)

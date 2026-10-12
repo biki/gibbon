@@ -273,7 +273,7 @@ impl GitApp {
                     .child(
                         button("pick-continue")
                             .primary()
-                            .small()
+                            .large()
                             .label("Continue")
                             .off(conflicts > 0 || self.busy.is_some())
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -288,7 +288,7 @@ impl GitApp {
                     .when(p.can_skip(), |d| {
                         d.child(
                             button("paused-skip")
-                                .small()
+                                .large()
                                 .label("Skip")
                                 .tooltip("Leave this commit out and go on")
                                 .off(self.busy.is_some())
@@ -304,7 +304,7 @@ impl GitApp {
                     })
                     .child(
                         button("pick-abort")
-                            .small()
+                            .large()
                             .label("Abort")
                             .off(self.busy.is_some())
                             .on_click(cx.listener(move |this, _, _, cx| {

@@ -574,7 +574,7 @@ impl GitApp {
                 d.child(
                     button("review-open-tab")
                         .ghost()
-                        .small()
+                        .large()
                         .label("Open Tab")
                         .tooltip("Open the worktree in a tab, on its Changes")
                         .on_click(
@@ -585,7 +585,7 @@ impl GitApp {
             .child(
                 button("review-browse")
                     .ghost()
-                    .small()
+                    .large()
                     .label("Browse Commits")
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.show_target(LogTarget::Ref(target_ref.clone()), cx)
@@ -661,7 +661,7 @@ impl GitApp {
         let this = cx.entity();
         button("review-base")
             .ghost()
-            .small()
+            .large()
             .tooltip(tip)
             .child(
                 h_flex()

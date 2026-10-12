@@ -270,7 +270,7 @@ impl GitApp {
                 .child(
                     button("back-to-head")
                         .ghost()
-                        .small()
+                        .large()
                         .label(format!("Back to {head}"))
                         .on_click(
                             cx.listener(|this, _, _, cx| this.show_target(LogTarget::Head, cx)),
@@ -279,7 +279,7 @@ impl GitApp {
                 .child({
                     let (target, pr) = (target.to_string(), pr.cloned());
                     button("review-branch")
-                        .small()
+                        .large()
                         .child(
                             h_flex()
                                 .gap_1p5()
@@ -295,7 +295,7 @@ impl GitApp {
                 .child(
                     button("pick")
                         .primary()
-                        .small()
+                        .large()
                         .off(chosen == 0 || self.busy.is_some())
                         .child(
                             h_flex()

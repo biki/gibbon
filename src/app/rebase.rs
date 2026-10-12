@@ -139,7 +139,7 @@ impl GitApp {
             .child(
                 button("rebase-cancel")
                     .ghost()
-                    .small()
+                    .large()
                     .label("Cancel")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.rebase = None;
@@ -150,7 +150,7 @@ impl GitApp {
             .child(
                 button("rebase-run")
                     .primary()
-                    .small()
+                    .large()
                     .label("Start Rebase")
                     .off(problem.is_some() || self.busy.is_some())
                     .on_click(cx.listener(|this, _, _, cx| this.run_rebase(cx))),
@@ -210,7 +210,7 @@ impl GitApp {
         };
         let this = cx.entity();
         let picker = button(("action", i))
-            .small()
+            .large()
             .outline()
             .w(px(96.))
             .child(

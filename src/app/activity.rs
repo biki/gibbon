@@ -353,13 +353,13 @@ impl GitApp {
             )
             .child(
                 // The same width on every row, so the columns line up.
-                div().flex_none().w(px(76.)).flex().justify_end().when(
+                div().flex_none().w(px(108.)).flex().justify_end().when(
                     rewrites && local && last && m.old.is_some(),
                     |d| {
                         let (mv, this) = (mv.clone(), this.clone());
                         d.child(
                             button(("restore", ix))
-                                .xsmall()
+                                .large()
                                 .child(
                                     h_flex()
                                         .gap_1()

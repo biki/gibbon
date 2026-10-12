@@ -767,7 +767,7 @@ impl Workspace {
                                 .child(
                                     button("recent-clear")
                                         .ghost()
-                                        .xsmall()
+                                        .large()
                                         .label("Clear")
                                         .on_click(
                                             cx.listener(|this, _, _, cx| this.clear_recent(cx)),

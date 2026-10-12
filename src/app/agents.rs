@@ -694,7 +694,7 @@ impl GitApp {
             let (app, wt) = (this.clone(), w.clone());
             row = row.child(
                 button(("agent-forget", wi))
-                    .xsmall()
+                    .large()
                     .child(label(IconName::FolderX, "Forget…"))
                     .on_click(move |_, window, cx| {
                         let wt = wt.clone();
@@ -710,7 +710,7 @@ impl GitApp {
                 .is_some_and(|(_, i)| i.changed > 0 || i.ahead > 0);
             let (app, wt) = (this.clone(), w.clone());
             let review = button(("agent-review", wi))
-                .xsmall()
+                .large()
                 .when(state == Some(AgentState::Ready), |b| b.primary())
                 .off(w.head.is_none() || !has_work)
                 .child(label(IconName::GitCompare, "Review"))
@@ -720,7 +720,7 @@ impl GitApp {
                 });
             let (app, path) = (this.clone(), w.path.clone());
             let open = button(("agent-open", wi))
-                .xsmall()
+                .large()
                 .child(if current {
                     label(IconName::FilePen, "Changes")
                 } else {
@@ -744,7 +744,7 @@ impl GitApp {
                 );
                 row = row.child(
                     button(("agent-commits", wi))
-                        .xsmall()
+                        .large()
                         .child(label(IconName::GitCommitVertical, "Commits"))
                         .tooltip(tip)
                         .on_click(move |_, _, cx| {
