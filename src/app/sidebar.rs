@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::ContextMenuExt as _;
 
 use super::*;
@@ -272,7 +271,13 @@ impl GitApp {
             .bg(t.colors.sidebar)
             .border_r_1()
             .border_color(t.colors.border)
-            .child(div().px_2().pt_2().pb_1().child(filter_field(&self.filter)))
+            .child(
+                div()
+                    .px_2()
+                    .pt_2()
+                    .pb_1()
+                    .child(field(&self.filter).cleanable(true)),
+            )
             .child(
                 uniform_list(
                     "sidebar",
@@ -767,17 +772,6 @@ impl GitApp {
             }
         }
     }
-}
-
-/// A field that filters a list: the branch filter and the history search.
-/// The kit's small field has small text. This one has the text of the rows
-/// and is a little taller, at each UI size.
-pub(super) fn filter_field(state: &Entity<InputState>) -> Input {
-    Input::new(state)
-        .small()
-        .cleanable(true)
-        .min_h(rems(2.))
-        .text_size(rems(1.))
 }
 
 #[cfg(test)]

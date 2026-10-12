@@ -2,8 +2,6 @@
 
 use std::collections::HashMap;
 
-use gpui_kit::component::input::Input;
-
 use crate::git::{RebaseAction, RebasePlan};
 
 use super::*;
@@ -238,10 +236,9 @@ impl GitApp {
                 menu
             });
         let text: AnyElement = match (action, ui.inputs.get(&step.sha)) {
-            (RebaseAction::Reword, Some(input)) => div()
-                .flex_1()
-                .child(Input::new(input).small())
-                .into_any_element(),
+            (RebaseAction::Reword, Some(input)) => {
+                div().flex_1().child(field(input)).into_any_element()
+            }
             _ => div()
                 .flex_1()
                 .min_w_0()

@@ -174,7 +174,7 @@ impl GitApp {
             .gap_2()
             .border_t_1()
             .border_color(border)
-            .child(Textarea::new(&self.message).h(px(96.)))
+            .child(Textarea::new(&self.message).h(px(96.)).text_size(rems(1.)))
             .child(
                 button("commit")
                     .primary()

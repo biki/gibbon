@@ -127,7 +127,8 @@ impl GitApp {
             .border_b_1()
             .border_color(t.colors.border)
             .child(
-                sidebar::filter_field(&self.search)
+                field(&self.search)
+                    .cleanable(true)
                     .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(muted)),
             );
         let searching = !self.query.is_empty();

@@ -12,7 +12,7 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- The branch filter is taller and has text of the same size as the rows
+- Text fields and the commit box are taller and have text of the same size as the rows
 
 ### Fixed
 

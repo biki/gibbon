@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use futures::StreamExt as _;
-use gpui_kit::component::input::{Input, MoveDown, MoveUp};
+use gpui_kit::component::input::{MoveDown, MoveUp};
 use gpui_kit::component::progress::Progress;
 
 use super::*;
@@ -407,7 +407,7 @@ impl CloneDialog {
                 cx.stop_propagation();
             })
             // The medium size cuts the text at small interface sizes.
-            .child(Input::new(&self.query).small().disabled(running));
+            .child(field(&self.query).disabled(running));
         let dest_error = self
             .source(cx)
             .and_then(|_| self.dest(cx).err())
@@ -428,11 +428,7 @@ impl CloneDialog {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .child(Input::new(&self.path).small().disabled(running)),
-                            )
+                            .child(div().flex_1().child(field(&self.path).disabled(running)))
                             .child(
                                 button("clone-choose")
                                     .small()

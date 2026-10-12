@@ -1,7 +1,5 @@
 //! Branch dialogs: create, rename, delete.
 
-use gpui_kit::component::input::Input;
-
 use super::*;
 
 type OnText = Rc<dyn Fn(&mut GitApp, String, &mut Context<GitApp>)>;
@@ -54,7 +52,7 @@ impl GitApp {
                                 .text_color(muted)
                                 .child(label.clone()),
                         )
-                        .child(Input::new(&field)),
+                        .child(super::field(&field)),
                 )
                 .footer(dialog_footer(
                     ok.clone(),

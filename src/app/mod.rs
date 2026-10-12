@@ -9,7 +9,7 @@ use std::time::{Instant, SystemTime};
 
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{ButtonVariant, ButtonVariants as _};
-use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::spinner::Spinner;
@@ -2150,6 +2150,16 @@ pub(super) fn segmented<L: Into<Segment> + Copy, T: Copy + PartialEq + 'static>(
 
 /// The turning circle that shows a git operation runs. It stands still when
 /// macOS reduces motion.
+/// A one-line text field. The kit's fields have text smaller than the rows
+/// (0.875 rem). These have the text of the rows and are at least 2 rem
+/// high, so they scale with the UI size.
+fn field(state: &Entity<InputState>) -> Input {
+    Input::new(state)
+        .small()
+        .min_h(rems(2.))
+        .text_size(rems(1.))
+}
+
 fn busy_spinner(color: Hsla) -> Spinner {
     Spinner::new()
         .icon(Icon::new(IconName::LoaderCircle))
