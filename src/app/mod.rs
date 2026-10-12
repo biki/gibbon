@@ -1849,10 +1849,17 @@ impl GitApp {
                 menu
             });
 
+        // The commits to pull or push, in an accent pill as the count of new
+        // moves beside Activity.
+        let accent = t.colors.primary;
         let count = |n: u32| {
             (n > 0).then(|| {
                 div()
-                    .text_size(px(11.))
+                    .px_1p5()
+                    .rounded(px(9.))
+                    .bg(accent.opacity(0.16))
+                    .text_color(accent)
+                    .text_size(rems(0.85))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(n.to_string())
             })

@@ -13,6 +13,7 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Text fields, the commit box and the buttons with text have the text size of the rows
+- The counts beside Pull and Push show in a colored badge
 
 ### Fixed
 
