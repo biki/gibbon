@@ -12,7 +12,7 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Text fields and the commit box are taller and have text of the same size as the rows
+- Text fields, the commit box, and the title bar and staging buttons have the text size of the rows
 
 ### Fixed
 

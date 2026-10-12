@@ -272,10 +272,10 @@ impl GitApp {
             .border_r_1()
             .border_color(t.colors.border)
             .child(
+                // The same padding as the history search beside it.
                 div()
                     .px_2()
-                    .pt_2()
-                    .pb_1()
+                    .py_1p5()
                     .child(field(&self.filter).cleanable(true)),
             )
             .child(

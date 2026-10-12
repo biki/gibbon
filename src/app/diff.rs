@@ -861,7 +861,7 @@ impl GitApp {
             .child(
                 button("sel-clear")
                     .ghost()
-                    .xsmall()
+                    .large()
                     .label("Clear")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.line_sel.clear();
@@ -871,7 +871,7 @@ impl GitApp {
             .when(!staged, |d| {
                 d.child(
                     button("sel-discard")
-                        .xsmall()
+                        .large()
                         .danger()
                         .label("Discard lines")
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -882,7 +882,7 @@ impl GitApp {
             })
             .child(
                 button("sel-stage")
-                    .xsmall()
+                    .large()
                     .primary()
                     .label(if staged {
                         "Unstage lines"
@@ -934,7 +934,7 @@ impl GitApp {
                         button(("hunk-discard", i))
                             .font_family(crate::theme::ui_font(cx))
                             .ghost()
-                            .xsmall()
+                            .large()
                             .h(button_h)
                             .label("Discard")
                             .on_click(cx.listener(move |this, _, window, cx| {
@@ -948,7 +948,7 @@ impl GitApp {
                     button(("hunk-stage", i))
                         .font_family(crate::theme::ui_font(cx))
                         .ghost()
-                        .xsmall()
+                        .large()
                         .h(button_h)
                         .label(if staged { "Unstage hunk" } else { "Stage hunk" })
                         .on_click(cx.listener(move |this, _, _, cx| {

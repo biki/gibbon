@@ -1810,7 +1810,7 @@ impl GitApp {
         let switch_this = this.clone();
         let branch_button = button("title-branch")
             .ghost()
-            .small()
+            .large()
             .off(self.repo.is_none())
             .child(
                 h_flex()
@@ -1880,7 +1880,7 @@ impl GitApp {
             .child(
                 button("fetch")
                     .ghost()
-                    .small()
+                    .large()
                     .off(no_repo)
                     .tooltip("Fetch all remotes  ⇧⌘F")
                     .child(
@@ -1900,7 +1900,7 @@ impl GitApp {
             .child(
                 button("pull")
                     .ghost()
-                    .small()
+                    .large()
                     .off(no_repo)
                     .tooltip("Pull  ⇧⌘P")
                     .child(
@@ -1915,7 +1915,7 @@ impl GitApp {
             .child(
                 button("push")
                     .ghost()
-                    .small()
+                    .large()
                     .off(no_repo)
                     .tooltip("Push  ⌘P")
                     .child(
@@ -2152,7 +2152,8 @@ pub(super) fn segmented<L: Into<Segment> + Copy, T: Copy + PartialEq + 'static>(
 /// macOS reduces motion.
 /// A one-line text field. The kit's fields have text smaller than the rows
 /// (0.875 rem). These have the text of the rows and are at least 2 rem
-/// high, so they scale with the UI size.
+/// high, so they scale with the UI size. Buttons with text use the kit's
+/// `large` size for the same reason: it is 2 rem high, with 1 rem text.
 fn field(state: &Entity<InputState>) -> Input {
     Input::new(state)
         .small()

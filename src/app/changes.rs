@@ -343,7 +343,7 @@ impl GitApp {
                     d.child(
                         button(("stash", ix))
                             .ghost()
-                            .xsmall()
+                            .large()
                             .label("Stash")
                             .tooltip("Stash all changes  ⌥⌘S")
                             .on_click(
@@ -353,7 +353,7 @@ impl GitApp {
                     .child(
                         button(("discard-all", ix))
                             .ghost()
-                            .xsmall()
+                            .large()
                             .label("Discard all")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let entries: Vec<StatusEntry> = this
@@ -369,7 +369,7 @@ impl GitApp {
                 .child(
                     button(("stage-all", ix))
                         .ghost()
-                        .xsmall()
+                        .large()
                         .label(if staged { "Unstage all" } else { "Stage all" })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let label = if staged { "Unstaging…" } else { "Staging…" };

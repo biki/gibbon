@@ -431,7 +431,7 @@ impl CloneDialog {
                             .child(div().flex_1().child(field(&self.path).disabled(running)))
                             .child(
                                 button("clone-choose")
-                                    .small()
+                                    .large()
                                     .label("Choose…")
                                     .off(running)
                                     .on_click(move |_, window, cx| {
