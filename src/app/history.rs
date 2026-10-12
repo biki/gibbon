@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use gpui_kit::component::Colorize as _;
+use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::ContextMenuExt as _;
 
 use super::*;
@@ -120,9 +121,23 @@ impl GitApp {
             .child(div().w(px(150.)).child("Author"))
             .child(div().w(px(90.)).child("Date"))
             .child(div().w(px(64.)).child("Commit"));
+        let search = div()
+            .flex_none()
+            .px_2()
+            .py_1p5()
+            .border_b_1()
+            .border_color(t.colors.border)
+            .child(
+                Input::new(&self.search)
+                    .small()
+                    .cleanable(true)
+                    .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(muted)),
+            );
+        let searching = !self.query.is_empty();
         v_flex()
             .size_full()
             .when_some(self.render_pick_banner(&memo, cx), |d, b| d.child(b))
+            .child(search)
             .child(header)
             .child(
                 div()
@@ -138,10 +153,11 @@ impl GitApp {
                             .items_center()
                             .justify_center()
                             .text_color(muted)
-                            .child(if self.log_loading {
-                                "Loading history…"
-                            } else {
-                                "No commits yet."
+                            .child(match (self.log_loading, searching) {
+                                (true, true) => "Searching…",
+                                (true, false) => "Loading history…",
+                                (false, true) => "No commits match the search.",
+                                (false, false) => "No commits yet.",
                             })
                     })
                     .when(n > 0, |d| {

@@ -127,7 +127,8 @@ Next steps:
   that changed in the last refresh flash for a moment.
 - **Blame and file history** — idea. Go from a line in the diff to the
   commit that wrote it, and from that commit to its pull request.
-- **History search** — idea. Filter the history by message, author or path.
+- **History search** — done. ⌘F filters the history by message, author, SHA
+  or path (`author:`, `path:`). Next: mark the matched words in the rows.
 - **Recover dropped stashes** — idea. `git fsck --unreachable` finds stash
   commits that a `stash drop` or `stash clear` removed.
 - **Amend the last commit** — idea. An **Amend** toggle beside the commit

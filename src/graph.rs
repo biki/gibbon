@@ -123,6 +123,24 @@ pub fn layout(commits: &[Commit]) -> Graph {
     Graph { rows, width }
 }
 
+impl Graph {
+    /// One color for all lines. Each commit of a word search that is not the
+    /// parent of the next starts a new lane, and its own color would mean
+    /// nothing.
+    pub fn one_color(&mut self) {
+        for row in &mut self.rows {
+            row.color = 0;
+            for edge in &mut row.edges {
+                match edge {
+                    Edge::In { color, .. } | Edge::Out { color, .. } | Edge::Pass { color, .. } => {
+                        *color = 0
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The first free lane, or a new one.
 fn alloc(lanes: &mut Vec<Option<(usize, usize)>>) -> usize {
     match lanes.iter().position(Option::is_none) {

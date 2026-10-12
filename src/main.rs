@@ -13,6 +13,7 @@ mod github;
 mod graph;
 mod highlight;
 mod recent;
+mod search;
 mod session;
 mod settings;
 mod theme;
@@ -35,6 +36,7 @@ actions!(
         ShowAllBranches,
         ShowActivity,
         ShowAgents,
+        SearchHistory,
         Fetch,
         Pull,
         Push,
@@ -132,6 +134,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-3", ShowAllBranches, Some("GitApp")),
         KeyBinding::new("cmd-4", ShowActivity, Some("GitApp")),
         KeyBinding::new("cmd-5", ShowAgents, Some("GitApp")),
+        KeyBinding::new("cmd-f", SearchHistory, Some("GitApp")),
         KeyBinding::new("cmd-shift-f", Fetch, Some("GitApp")),
         KeyBinding::new("cmd-shift-p", Pull, Some("GitApp")),
         KeyBinding::new("cmd-p", Push, Some("GitApp")),
@@ -172,6 +175,8 @@ fn install_menus(cx: &mut App) {
             MenuItem::action("All Branches", ShowAllBranches),
             MenuItem::action("Activity", ShowActivity),
             MenuItem::action("Agents", ShowAgents),
+            MenuItem::separator(),
+            MenuItem::action("Search History", SearchHistory),
             MenuItem::separator(),
             MenuItem::action("Word Wrap in Diffs", ToggleWordWrap),
             MenuItem::separator(),

@@ -6,6 +6,10 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- History search (⌘F): filter the commit list by message, author, SHA or path
+
 ### Fixed
 
 - Wrapped diff lines no longer crash the app after a diff reloads

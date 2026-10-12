@@ -71,6 +71,13 @@ palette and on the welcome screen.
 
 - A commit graph with branch, remote and tag badges, authors and dates.
 - **All branches** draws one graph for every branch, remote branch and tag.
+- **Search** (<kbd>⌘</kbd><kbd>F</kbd>) filters the commit list. A word
+  matches the message, the name or email of the author, or the start of a
+  SHA. `author:jane` matches the author only. `path:src/app` keeps the
+  commits that change that file or folder, and `path:*.md` works too. Quotes
+  keep words together: `"word diff"`. A commit must match all the words.
+  Press <kbd>↵</kbd> to go to the results, and <kbd>⎋</kbd> to clear the
+  search.
 - Commit details: the subject, the author, the date and the commit on two
   lines, then the changed files and the diff. The message folds to one line;
   click it to show all of it. The tooltip of the author shows the committer,
@@ -400,6 +407,7 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
 | Stash changes | <kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd> |
 | Fetch / Pull / Push | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> / <kbd>⌘</kbd><kbd>P</kbd> |
 | Previous / next commit | <kbd>↑</kbd> / <kbd>↓</kbd> |
+| Search history | <kbd>⌘</kbd><kbd>F</kbd> |
 
 ## Where your data lives
 
@@ -421,6 +429,9 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
 - The file watcher reads the top-level `.gitignore` of each worktree only, so
   ignored files in deeper folders can cause extra (harmless) refreshes.
 - Interactive rebase flattens merge commits and has no *edit* or *exec* step.
+- History search reads the same 20,000 newest commits that the history
+  shows. In the results of a word search, the graph joins only the commits
+  that are parent and child.
 - Pull requests: open ones only. Gibbon shows the review decision, not the
   reviews or the comments.
 - Activity reads the reflog files. A repository in the reftable format shows
@@ -462,6 +473,7 @@ Environment variables for automated UI checks:
 | `GIBBON_STASH=<n>` | Open `stash@{n}` |
 | `GIBBON_REVIEW=<branch or ref>` | Review that branch against the base branch |
 | `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore\|cleanup\|clone` | Open that dialog (restore: for the newest move that dropped commits) |
+| `GIBBON_SEARCH=<query>` | Search the history (see History search) |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 | `GIBBON_RELEASES=<url>` | Read the latest release from this URL, in the JSON of the GitHub API (a `file://` URL works). Update checks then run also with `GIBBON_BACKGROUND=1` |

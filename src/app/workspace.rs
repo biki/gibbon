@@ -166,7 +166,7 @@ impl Workspace {
             None => {}
         }
         if let Some(app) = self.active_app().cloned() {
-            app.update(cx, |app, cx| app.apply_check_env(cx));
+            app.update(cx, |app, cx| app.apply_check_env(window, cx));
         }
         self.check_clone = std::env::var("GIBBON_DIALOG").as_deref() == Ok("clone");
     }

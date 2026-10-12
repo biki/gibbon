@@ -29,8 +29,8 @@ use crate::graph::{self, Graph};
 use crate::highlight::{self, DiffStyles};
 use crate::{
     CleanUpBranches, CloneRepo, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull,
-    Push, Refresh, SelectNext, SelectPrev, ShowActivity, ShowAgents, ShowAllBranches, ShowChanges,
-    ShowHistory, StashChanges, TogglePalette, ToggleWordWrap,
+    Push, Refresh, SearchHistory, SelectNext, SelectPrev, ShowActivity, ShowAgents,
+    ShowAllBranches, ShowChanges, ShowHistory, StashChanges, TogglePalette, ToggleWordWrap,
 };
 use files::FileRow;
 use hover::{Off as _, button, checkbox, hover_fill};
@@ -115,6 +115,8 @@ const PR_TICK_RUNNING: std::time::Duration = std::time::Duration::from_secs(60);
 const PR_TICK_IDLE: std::time::Duration = std::time::Duration::from_secs(300);
 /// A tab that shows again fetches when its last fetch is older than this.
 const SHOWN_FETCH_GAP: std::time::Duration = std::time::Duration::from_secs(60);
+/// The time from the last key in the history search to the search.
+const SEARCH_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 
 mod activity;
 mod agents;
@@ -249,6 +251,12 @@ pub struct GitApp {
     /// For a browsed branch: its commits that HEAD does not contain.
     picks: Rc<HashMap<String, PickState>>,
     log_loading: bool,
+    /// The search field of the commit list.
+    search: Entity<InputState>,
+    /// The search that `commits` shows (see `crate::search`).
+    query: crate::search::Query,
+    /// Waits for the typing in `search` to stop.
+    search_task: Option<Task<()>>,
     selected: HashSet<usize>,
     anchor: Option<usize>,
     cursor: Option<usize>,
@@ -313,8 +321,26 @@ impl GitApp {
             TextareaState::new(window, cx).placeholder("Summary\n\nDescription (optional)")
         });
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter branches"));
+        let search = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Search commits   author:name   path:src/")
+                .clean_on_escape()
+        });
         let subs = vec![
             cx.subscribe(&filter, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.subscribe_in(
+                &search,
+                window,
+                |this, _, e: &InputEvent, window, cx| match e {
+                    InputEvent::Change => this.search_changed(cx),
+                    // Search now, and go to the results.
+                    InputEvent::PressEnter { .. } => {
+                        this.search_now(cx);
+                        this.list_focus.focus(window, cx);
+                    }
+                    _ => {}
+                },
+            ),
             cx.observe_window_activation(window, |this, window, _| {
                 this.window_active = window.is_window_active();
             }),
@@ -386,6 +412,9 @@ impl GitApp {
             }),
             picks: Rc::new(HashMap::new()),
             log_loading: false,
+            search,
+            query: crate::search::Query::default(),
+            search_task: None,
             selected: HashSet::new(),
             anchor: None,
             cursor: None,
@@ -839,6 +868,7 @@ impl GitApp {
         let epoch = self.log_epoch;
         self.log_loading = true;
         let target = self.target.clone();
+        let query = self.query.clone();
         let foreign = self.foreign_target().map(str::to_string);
         let keep = self.pending_commit.take().or_else(|| {
             self.cursor
@@ -849,8 +879,16 @@ impl GitApp {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let commits = git::log(&repo, &target)?;
-                    let graph = graph::layout(&commits);
+                    let mut commits = git::log(&repo, &target, &query.paths)?;
+                    if query.needs_messages() {
+                        let messages = git::messages(&repo, &target, &query.paths)?;
+                        commits.retain(|c| query.matches(c, messages.get(&c.sha)));
+                    }
+                    // A commit links only to the parents that are in the list.
+                    let mut graph = graph::layout(&commits);
+                    if query.needs_messages() {
+                        graph.one_color();
+                    }
                     let picks = match &foreign {
                         Some(r) => git::pick_states(&repo, r)?,
                         None => HashMap::new(),
@@ -885,6 +923,36 @@ impl GitApp {
             });
         })
         .detach();
+    }
+
+    /// The text of the search field changed: search when the typing stops.
+    fn search_changed(&mut self, cx: &mut Context<Self>) {
+        self.search_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SEARCH_DELAY).await;
+            let _ = this.update(cx, |this, cx| this.search_now(cx));
+        }));
+    }
+
+    fn search_now(&mut self, cx: &mut Context<Self>) {
+        self.search_task = None;
+        let query = crate::search::Query::parse(&self.search.read(cx).value());
+        if query != self.query {
+            self.query = query;
+            self.load_log(cx);
+            cx.notify();
+        }
+    }
+
+    /// ⌘F: the search field of the History view.
+    fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.repo.is_none() {
+            return;
+        }
+        if self.view != View::History {
+            self.view = View::History;
+            cx.notify();
+        }
+        self.search.update(cx, |s, cx| s.focus(window, cx));
     }
 
     fn load_detail(&mut self, cx: &mut Context<Self>) {
@@ -1403,8 +1471,8 @@ impl GitApp {
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
     /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`, `GIBBON_REVIEW=<branch>`,
     /// `GIBBON_DIALOG=new-branch|stash|palette|settings|restore|cleanup`,
-    /// `GIBBON_INSPECTOR=1`.
-    pub fn apply_check_env(&mut self, cx: &mut Context<Self>) {
+    /// `GIBBON_SEARCH=<query>`, `GIBBON_INSPECTOR=1`.
+    pub fn apply_check_env(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let var = |k: &str| std::env::var(k).ok();
         if let Some(b) = var("GIBBON_BROWSE") {
             self.browse(&b, cx);
@@ -1435,6 +1503,10 @@ impl GitApp {
         }
         if let Some(n) = var("GIBBON_STASH").and_then(|n| n.parse().ok()) {
             self.view = View::Stash(n);
+        }
+        if let Some(q) = var("GIBBON_SEARCH") {
+            self.search.update(cx, |s, cx| s.set_value(q, window, cx));
+            self.search_now(cx);
         }
         self.check_dialog = var("GIBBON_DIALOG");
         self.check_inspector = var("GIBBON_INSPECTOR").is_some();
@@ -1867,6 +1939,8 @@ impl GitApp {
         let n = self.commits.len();
         let commits = if self.log_loading {
             "Loading history…".to_string()
+        } else if !self.query.is_empty() {
+            format!("{} matching commit{}", fmt_int(n), history::plural(n))
         } else if n >= git::LOG_LIMIT {
             format!("{} commits (limit)", fmt_int(n))
         } else {
@@ -1976,6 +2050,9 @@ impl Render for GitApp {
             )
             .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show_activity(cx)))
             .on_action(cx.listener(|this, _: &ShowAgents, _, cx| this.show_agents(cx)))
+            .on_action(
+                cx.listener(|this, _: &SearchHistory, window, cx| this.focus_search(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &Fetch, _, cx| this.fetch(cx)))
             .on_action(cx.listener(|this, _: &Pull, _, cx| this.pull(cx)))
             .on_action(cx.listener(|this, _: &Push, _, cx| this.push(cx)))

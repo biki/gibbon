@@ -237,21 +237,35 @@ pub enum LogTarget {
     All,
 }
 
-pub fn log(repo: &Repo, target: &LogTarget) -> Result<Vec<Commit>> {
-    let limit = format!("-n{LOG_LIMIT}");
-    let mut args = vec![
-        "log",
-        "--topo-order",
-        "--decorate=full",
-        "--no-color",
-        limit.as_str(),
-        "--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e",
-    ];
+/// The arguments of `git log` for `target` in `format`, with `limit` as
+/// `-n<count>`. With `paths`, the log has only the commits that change
+/// them, and the parents of each are the nearest such commits, as
+/// `git log --parents -- <paths>` shows them.
+fn log_args<'a>(
+    target: &'a LogTarget,
+    paths: &'a [String],
+    format: &'a str,
+    limit: &'a str,
+) -> Vec<&'a str> {
+    let mut args = vec!["log", "--topo-order", "--no-color", limit, format];
     match target {
         LogTarget::Head => args.push("HEAD"),
         LogTarget::Ref(r) => args.push(r.as_str()),
         LogTarget::All => args.extend(["--branches", "--remotes", "--tags", "HEAD"]),
     }
+    if !paths.is_empty() {
+        args.push("--parents");
+        args.push("--");
+        args.extend(paths.iter().map(String::as_str));
+    }
+    args
+}
+
+pub fn log(repo: &Repo, target: &LogTarget, paths: &[String]) -> Result<Vec<Commit>> {
+    let limit = format!("-n{LOG_LIMIT}");
+    let format = "--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e";
+    let mut args = log_args(target, paths, format, &limit);
+    args.insert(1, "--decorate=full");
     let out = match repo.git(&args) {
         Ok(out) => out,
         // A new repository has no commits yet.
@@ -274,6 +288,31 @@ pub fn log(repo: &Repo, target: &LogTarget) -> Result<Vec<Commit>> {
                 refs: parse_decorations(f[4]),
                 subject: f[5].to_string(),
             })
+        })
+        .collect())
+}
+
+/// The author email and the whole message of each commit of the log that
+/// `log` loads with the same arguments, by SHA. A search reads them: the
+/// log itself has only the subjects.
+pub fn messages(
+    repo: &Repo,
+    target: &LogTarget,
+    paths: &[String],
+) -> Result<HashMap<String, (String, String)>> {
+    let limit = format!("-n{LOG_LIMIT}");
+    let args = log_args(target, paths, "--format=%H%x1f%ae%x1f%B%x1e", &limit);
+    let out = match repo.git(&args) {
+        Ok(out) => out,
+        Err(e) if e.to_string().contains("does not have any commits") => return Ok(HashMap::new()),
+        Err(e) => return Err(e),
+    };
+    Ok(out
+        .split('\x1e')
+        .filter_map(|rec| {
+            let mut f = rec.trim_start_matches('\n').splitn(3, '\x1f');
+            let (sha, email, message) = (f.next()?, f.next()?, f.next()?);
+            Some((sha.to_string(), (email.to_string(), message.to_string())))
         })
         .collect())
 }
@@ -2304,7 +2343,7 @@ mod tests {
         // Pick f3 then f1 as the UI orders them: oldest first.
         cherry_pick(r, &[f1.clone(), f3.clone()], false).unwrap();
         assert_eq!(head(r).branch.as_deref(), Some("main"));
-        let subjects: Vec<String> = log(r, &LogTarget::Head)
+        let subjects: Vec<String> = log(r, &LogTarget::Head, &[])
             .unwrap()
             .into_iter()
             .map(|c| c.subject)
@@ -2315,6 +2354,25 @@ mod tests {
         );
         let states = pick_states(r, "refs/heads/feature").unwrap();
         assert!(states.values().all(|s| *s == PickState::AlreadyPicked));
+    }
+
+    #[test]
+    fn log_of_paths_and_messages() {
+        let t = temp_repo("search");
+        let r = &t.0;
+        let a = commit_file(r, "a.txt", "one", "add a");
+        commit_file(r, "b.txt", "one", "add b");
+        let c = commit_file(r, "a.txt", "two", "change a\n\nWith a body.");
+
+        let only_a = log(r, &LogTarget::Head, &["a.txt".into()]).unwrap();
+        let shas: Vec<&str> = only_a.iter().map(|c| c.sha.as_str()).collect();
+        assert_eq!(shas, [c.as_str(), a.as_str()]);
+        assert_eq!(only_a[0].parents, [a], "the parent skips b");
+
+        let m = messages(r, &LogTarget::Head, &[]).unwrap();
+        assert_eq!(m.len(), 3);
+        assert_eq!(m[&c].0, "test@example.com");
+        assert!(m[&c].1.contains("With a body."));
     }
 
     #[test]
@@ -2651,7 +2709,7 @@ mod tests {
     }
 
     fn subjects(r: &Repo) -> Vec<String> {
-        log(r, &LogTarget::Head)
+        log(r, &LogTarget::Head, &[])
             .unwrap()
             .into_iter()
             .map(|c| c.subject)
