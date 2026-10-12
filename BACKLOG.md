@@ -35,6 +35,13 @@ Next steps:
 - **Waiting for an answer** — idea. *Quiet* cannot tell an agent that waits
   for you from one that runs a long command. The session files of Claude
   Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) can tell.
+- **Notifications** — idea. A macOS notification and a Dock badge when a
+  worktree becomes *Quiet*, *Ready to review* or *Conflict*, or when its
+  checks fail. Now you see a state only when you look at Agents. Best with
+  **Waiting for an answer**.
+- **The agent's last message** — idea. Show the last prompt or summary from
+  the agent's session file on its card. Then the card tells what the agent
+  does, not only which files it changes.
 - **Overlap warning** — idea. Mark worktrees that change the same files;
   `git merge-tree --write-tree` tells a real conflict from a clean overlap.
 - **Agents in other folders** — idea. Count an agent also for the worktrees
@@ -68,6 +75,9 @@ Next steps:
   the files, and filter the diff to one commit.
 - **Comments** — idea. Notes on lines that you can copy into a prompt for the
   agent.
+- **Changes since your last review** — idea. A file that changes again loses
+  its Viewed mark, and you read its whole diff again. Keep the commit or
+  blob of each Viewed mark, and show only what changed since.
 
 ### 3. Activity timeline with undo — done (first version)
 
@@ -120,3 +130,15 @@ Next steps:
 - **History search** — idea. Filter the history by message, author or path.
 - **Recover dropped stashes** — idea. `git fsck --unreachable` finds stash
   commits that a `stash drop` or `stash clear` removed.
+- **Amend the last commit** — idea. An **Amend** toggle beside the commit
+  box loads the last message and adds the staged changes to that commit.
+- **Conflict view** — idea. When Git stops on a conflict, show *ours* and
+  *theirs* for each conflict, with **Use ours**, **Use theirs** and **Use
+  both**, then mark the file as resolved. Now Gibbon shows only
+  **Continue**, **Skip** and **Abort**.
+- **Undo for Discard** — idea. Before a discard, write the old contents to
+  Git (`git hash-object -w`), and show **Undo** in the toast. Now a discard
+  is the only action that loses work for good.
+- **Open in editor** — idea. Open a file, or a line of a diff, in Zed,
+  VS Code or Cursor. Open a terminal in a worktree from its menu. Now
+  Gibbon has **Open in Finder** only.
