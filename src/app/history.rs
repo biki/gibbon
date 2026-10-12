@@ -8,7 +8,6 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use gpui_kit::component::Colorize as _;
-use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::ContextMenuExt as _;
 
 use super::*;
@@ -128,9 +127,7 @@ impl GitApp {
             .border_b_1()
             .border_color(t.colors.border)
             .child(
-                Input::new(&self.search)
-                    .small()
-                    .cleanable(true)
+                sidebar::filter_field(&self.search)
                     .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(muted)),
             );
         let searching = !self.query.is_empty();
