@@ -78,6 +78,11 @@ palette and on the welcome screen.
   keep words together: `"word diff"`. A commit must match all the words.
   Press <kbd>↵</kbd> to go to the results, and <kbd>⎋</kbd> to clear the
   search.
+- **File history**: the clock button above a diff, or right-click a file ▸
+  **Show File History**, shows the commits that changed the file. It is the
+  search `path:<file>`, so you can add words to it. The history of one file
+  goes on before the file was renamed, and each commit shows the file first.
+  Click the clock button again to show all commits.
 - Commit details: the subject, the author, the date and the commit on two
   lines, then the changed files and the diff. The message folds to one line;
   click it to show all of it. The tooltip of the author shows the committer,

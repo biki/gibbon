@@ -6,6 +6,10 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- File history: the commits that changed a file, also before a rename of the file
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

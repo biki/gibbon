@@ -479,12 +479,10 @@ impl GitApp {
                                 },
                             ));
                         }
-                        let copy = e.path.clone();
                         let full = root.as_ref().map(|r| r.join(&e.path));
-                        menu.separator()
-                            .item(PopupMenuItem::new("Copy Path").on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                            }))
+                        menu.item(files::history_item(&e.path, &this))
+                            .separator()
+                            .item(files::copy_path_item(&e.path))
                             .item(PopupMenuItem::new("Reveal in Finder").on_click(
                                 move |_, _, _| {
                                     if let Some(p) = &full {

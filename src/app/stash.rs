@@ -2,6 +2,8 @@
 
 use std::ops::Range;
 
+use gpui_kit::component::menu::ContextMenuExt as _;
+
 use super::*;
 
 impl GitApp {
@@ -257,6 +259,7 @@ impl GitApp {
                         FileRow::Dir(ref dir) => this.dir_row("stash", dir, ("stash-dir", i), cx),
                         FileRow::File { ix, depth } => {
                             let selected = this.stash_file == ix;
+                            let (path, app) = (files.files[ix].path.clone(), cx.entity());
                             diff::file_row(
                                 &files.files[ix],
                                 selected,
@@ -272,6 +275,7 @@ impl GitApp {
                                     cx.notify();
                                 }),
                             )
+                            .context_menu(move |menu, _, _| files::file_menu(menu, &path, &app))
                             .into_any_element()
                         }
                     })

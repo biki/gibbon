@@ -254,6 +254,7 @@ mod tests {
             time: 0,
             subject: String::new(),
             refs: vec![],
+            path: None,
         }
     }
 

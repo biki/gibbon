@@ -363,6 +363,27 @@ impl GitApp {
     }
 }
 
+/// The menu of a file row of a commit, a stash or a review.
+pub(super) fn file_menu(menu: PopupMenu, path: &str, this: &Entity<GitApp>) -> PopupMenu {
+    menu.item(history_item(path, this))
+        .separator()
+        .item(copy_path_item(path))
+}
+
+/// Show File History, for the menu of a file row.
+pub(super) fn history_item(path: &str, this: &Entity<GitApp>) -> PopupMenuItem {
+    let (path, this) = (path.to_string(), this.clone());
+    PopupMenuItem::new("Show File History").on_click(move |_, window, cx| {
+        this.update(cx, |app, cx| app.show_file_history(&path, window, cx));
+    })
+}
+
+pub(super) fn copy_path_item(path: &str) -> PopupMenuItem {
+    let path = path.to_string();
+    PopupMenuItem::new("Copy Path")
+        .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(path.clone())))
+}
+
 /// The bar above the files of a commit or stash: count, line counts, and
 /// the view buttons, after the `folders` buttons.
 pub(super) fn files_bar(files: &[FileDiff], folders: Option<AnyElement>, cx: &App) -> Div {

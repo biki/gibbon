@@ -125,8 +125,10 @@ Next steps:
 - **Sort Changes by recent edits** — done. The sort button of the Changes
   list has **Recent Edits First**: the newest file on disk first. The files
   that changed in the last refresh flash for a moment.
-- **Blame and file history** — idea. Go from a line in the diff to the
-  commit that wrote it, and from that commit to its pull request.
+- **Blame and file history** — in progress. File history is done: the
+  clock button above a diff, or **Show File History** on a file row, searches
+  `path:<file>` and follows renames. Next: blame, from a line to the commit
+  that wrote it, and from that commit to its pull request.
 - **History search** — done. ⌘F filters the history by message, author, SHA
   or path (`author:`, `path:`). Next: mark the matched words in the rows.
 - **Recover dropped stashes** — idea. `git fsck --unreachable` finds stash

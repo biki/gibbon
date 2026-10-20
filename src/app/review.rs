@@ -10,6 +10,8 @@
 
 use std::ops::Range;
 
+use gpui_kit::component::menu::ContextMenuExt as _;
+
 use super::*;
 
 pub(super) struct ReviewUi {
@@ -719,6 +721,7 @@ impl GitApp {
                         FileRow::File { ix, depth } => {
                             let selected = this.review.as_ref().is_some_and(|r| r.file == ix);
                             let viewed = this.is_viewed(ix);
+                            let (path, app) = (files.files[ix].path.clone(), cx.entity());
                             diff::file_row(
                                 &files.files[ix],
                                 selected,
@@ -749,6 +752,7 @@ impl GitApp {
                                 MouseButton::Left,
                                 cx.listener(move |this, _, _, cx| this.show_review_file(ix, cx)),
                             )
+                            .context_menu(move |menu, _, _| files::file_menu(menu, &path, &app))
                             .into_any_element()
                         }
                     })

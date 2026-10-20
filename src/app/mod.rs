@@ -879,9 +879,17 @@ impl GitApp {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut commits = git::log(&repo, &target, &query.paths)?;
+                    // The history of one file goes on before its renames.
+                    let follow = query
+                        .single_path()
+                        .is_some_and(|p| git::is_file(&repo, &target, p));
+                    let filter = git::PathFilter {
+                        paths: &query.paths,
+                        follow,
+                    };
+                    let mut commits = git::log(&repo, &target, filter)?;
                     if query.needs_messages() {
-                        let messages = git::messages(&repo, &target, &query.paths)?;
+                        let messages = git::messages(&repo, &target, filter)?;
                         commits.retain(|c| query.matches(c, messages.get(&c.sha)));
                     }
                     // A commit links only to the parents that are in the list.
@@ -955,6 +963,44 @@ impl GitApp {
         self.search.update(cx, |s, cx| s.focus(window, cx));
     }
 
+    /// The history of the file or folder `path`: a search for it in the
+    /// history of the shown branch. In History, a second call for the same
+    /// path clears the search.
+    fn show_file_history(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let target = match (self.view, &self.review) {
+            (View::History, _) => self.target.clone(),
+            (View::Review, Some(ui)) => LogTarget::Ref(ui.target.clone()),
+            _ => LogTarget::Head,
+        };
+        let text = if self.shows_history_of(path) {
+            String::new()
+        } else if path.contains(char::is_whitespace) {
+            format!("path:\"{path}\"")
+        } else {
+            format!("path:{path}")
+        };
+        self.search
+            .update(cx, |s, cx| s.set_value(text, window, cx));
+        // The commit that stays selected shows the file at once.
+        if let Some(ix) = self.detail.as_ref().and_then(|d| file_at(&d.files, path)) {
+            self.detail_file = ix;
+            self.highlight_shown(cx);
+        }
+        self.show_target(target, cx);
+        self.search_now(cx);
+    }
+
+    /// History shows the history of the file `path`: a search for it, or
+    /// for the name that it has after a rename.
+    fn shows_history_of(&self, path: &str) -> bool {
+        let followed = self
+            .cursor
+            .and_then(|i| self.commits.get(i))
+            .and_then(|c| c.path.as_deref());
+        self.view == View::History
+            && (self.query.single_path() == Some(path) || followed == Some(path))
+    }
+
     fn load_detail(&mut self, cx: &mut Context<Self>) {
         let (Some(repo), Some(commit)) = (
             self.repo.clone(),
@@ -966,6 +1012,11 @@ impl GitApp {
         if self.detail.as_ref().is_some_and(|d| d.sha == commit.sha) {
             return;
         }
+        // A search for a file shows that file, by its path in the commit.
+        let searched = commit
+            .path
+            .clone()
+            .or_else(|| self.query.single_path().map(str::to_string));
         let sha = commit.sha.clone();
         self.detail_epoch += 1;
         let epoch = self.detail_epoch;
@@ -981,6 +1032,7 @@ impl GitApp {
                     let d = git::commit_detail(&repo, &sha)?;
                     let ix = pending
                         .filter(|&i| i < d.files.len())
+                        .or_else(|| file_at(&d.files, searched.as_deref()?))
                         .or_else(|| shown(&d.files))
                         .unwrap_or(0);
                     let styles = colors_with_text(&repo, None, &d, ix, &theme);
@@ -2256,6 +2308,16 @@ fn colors_with_text(
     let file = detail.files.get(ix)?;
     (file.lines.len() <= COLORS_WITH_TEXT)
         .then(|| highlight::compute(file, theme, &highlight::texts(repo, file, worktree)))
+}
+
+/// The file of `files` at `path`, or before its rename, else the first
+/// file in the folder `path`.
+fn file_at(files: &[FileDiff], path: &str) -> Option<usize> {
+    let folder = format!("{}/", path.trim_end_matches('/'));
+    files
+        .iter()
+        .position(|f| f.path == path || f.old_path.as_deref() == Some(path))
+        .or_else(|| files.iter().position(|f| f.path.starts_with(&folder)))
 }
 
 /// 1234567 -> "1,234,567".

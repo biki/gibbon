@@ -43,6 +43,15 @@ impl Query {
         self.words.is_empty() && self.authors.is_empty() && self.paths.is_empty()
     }
 
+    /// The path of a search for one file or folder: one `path:` without a
+    /// pattern.
+    pub fn single_path(&self) -> Option<&str> {
+        match self.paths.as_slice() {
+            [one] if !one.contains(['*', '?', '[']) => Some(one),
+            _ => None,
+        }
+    }
+
     /// Words and authors need the messages and emails (`git::messages`).
     /// Paths need only the log: Git keeps the commits that change them.
     pub fn needs_messages(&self) -> bool {
@@ -102,6 +111,7 @@ mod tests {
             time: 0,
             subject: subject.into(),
             refs: vec![],
+            path: None,
         }
     }
 
@@ -117,6 +127,17 @@ mod tests {
         assert_eq!(q.paths, ["src/app"]);
         assert!(Query::parse("  \"\" ").is_empty());
         assert!(!Query::parse("path:src").needs_messages());
+    }
+
+    #[test]
+    fn single_path_without_a_pattern() {
+        assert_eq!(
+            Query::parse("fix path:src/a.rs").single_path(),
+            Some("src/a.rs")
+        );
+        assert_eq!(Query::parse("path:*.md").single_path(), None);
+        assert_eq!(Query::parse("path:a path:b").single_path(), None);
+        assert_eq!(Query::parse("fix").single_path(), None);
     }
 
     #[test]

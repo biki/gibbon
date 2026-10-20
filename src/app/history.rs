@@ -723,6 +723,7 @@ impl GitApp {
                         FileRow::Dir(ref dir) => this.dir_row("commit", dir, ("detail-dir", i), cx),
                         FileRow::File { ix, depth } => {
                             let selected = this.detail_file == ix;
+                            let (path, app) = (files.files[ix].path.clone(), cx.entity());
                             diff::file_row(
                                 &files.files[ix],
                                 selected,
@@ -738,6 +739,7 @@ impl GitApp {
                                     cx.notify();
                                 }),
                             )
+                            .context_menu(move |menu, _, _| files::file_menu(menu, &path, &app))
                             .into_any_element()
                         }
                     })

@@ -585,6 +585,8 @@ impl GitApp {
         let rendered = markdown::rendered(&file, cx);
         let text_diff = picture.is_none() && !rendered && !file.binary;
         let accent = t.colors.primary;
+        let history = self.shows_history_of(&file.path);
+        let history_path = file.path.clone();
         let header = h_flex()
             .flex_none()
             .h(px(36.))
@@ -620,6 +622,22 @@ impl GitApp {
                         .child(format!("−{}", file.deletions)),
                 )
             })
+            .child(
+                button("diff-history")
+                    .ghost()
+                    .small()
+                    .ml_2()
+                    .icon(Icon::new(IconName::FileClock).when(history, |i| i.text_color(accent)))
+                    .selected(history)
+                    .tooltip(if history {
+                        "Show all commits"
+                    } else {
+                        "Show the history of this file"
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.show_file_history(&history_path, window, cx)
+                    })),
+            )
             .when_some(extra, |d, e| d.child(div().ml_2().child(e)))
             .when(image::is_svg(&file), |d| {
                 d.child(

@@ -215,6 +215,9 @@ pub struct Commit {
     pub time: i64,
     pub subject: String,
     pub refs: Vec<RefLabel>,
+    /// In the history of one file: the path of the file in this commit,
+    /// which is another path before a rename.
+    pub path: Option<String>,
 }
 
 impl Commit {
@@ -237,13 +240,28 @@ pub enum LogTarget {
     All,
 }
 
+/// The commits that a log keeps: those that change `paths`. With one path,
+/// `follow` keeps the commits from before a rename of that file too.
+#[derive(Clone, Copy, Default)]
+pub struct PathFilter<'a> {
+    pub paths: &'a [String],
+    pub follow: bool,
+}
+
+impl PathFilter<'_> {
+    /// Git follows a file only when the log has one path.
+    fn follows(&self) -> bool {
+        self.follow && self.paths.len() == 1
+    }
+}
+
 /// The arguments of `git log` for `target` in `format`, with `limit` as
-/// `-n<count>`. With `paths`, the log has only the commits that change
+/// `-n<count>`. With paths, the log has only the commits that change
 /// them, and the parents of each are the nearest such commits, as
 /// `git log --parents -- <paths>` shows them.
 fn log_args<'a>(
     target: &'a LogTarget,
-    paths: &'a [String],
+    filter: PathFilter<'a>,
     format: &'a str,
     limit: &'a str,
 ) -> Vec<&'a str> {
@@ -253,18 +271,21 @@ fn log_args<'a>(
         LogTarget::Ref(r) => args.push(r.as_str()),
         LogTarget::All => args.extend(["--branches", "--remotes", "--tags", "HEAD"]),
     }
-    if !paths.is_empty() {
+    if !filter.paths.is_empty() {
         args.push("--parents");
+        if filter.follows() {
+            args.push("--follow");
+        }
         args.push("--");
-        args.extend(paths.iter().map(String::as_str));
+        args.extend(filter.paths.iter().map(String::as_str));
     }
     args
 }
 
-pub fn log(repo: &Repo, target: &LogTarget, paths: &[String]) -> Result<Vec<Commit>> {
+pub fn log(repo: &Repo, target: &LogTarget, filter: PathFilter) -> Result<Vec<Commit>> {
     let limit = format!("-n{LOG_LIMIT}");
     let format = "--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e";
-    let mut args = log_args(target, paths, format, &limit);
+    let mut args = log_args(target, filter, format, &limit);
     args.insert(1, "--decorate=full");
     let out = match repo.git(&args) {
         Ok(out) => out,
@@ -272,7 +293,7 @@ pub fn log(repo: &Repo, target: &LogTarget, paths: &[String]) -> Result<Vec<Comm
         Err(e) if e.to_string().contains("does not have any commits") => return Ok(vec![]),
         Err(e) => return Err(e),
     };
-    Ok(out
+    let mut commits: Vec<Commit> = out
         .split('\x1e')
         .filter_map(|rec| {
             let rec = rec.trim_start_matches('\n');
@@ -287,7 +308,65 @@ pub fn log(repo: &Repo, target: &LogTarget, paths: &[String]) -> Result<Vec<Comm
                 time: f[3].parse().unwrap_or(0),
                 refs: parse_decorations(f[4]),
                 subject: f[5].to_string(),
+                path: None,
             })
+        })
+        .collect();
+    if filter.follows() {
+        let paths = followed_paths(repo, target, filter, &limit)?;
+        link_followed(&mut commits);
+        for c in &mut commits {
+            c.path = paths.get(&c.sha).cloned();
+        }
+    }
+    Ok(commits)
+}
+
+/// Whether `path` is a file in the tip of `target`, not a folder.
+pub fn is_file(repo: &Repo, target: &LogTarget, path: &str) -> bool {
+    let tip = match target {
+        LogTarget::Ref(r) => r.as_str(),
+        LogTarget::Head | LogTarget::All => "HEAD",
+    };
+    repo.git(&["cat-file", "-t", &format!("{tip}:{path}")])
+        .is_ok_and(|kind| kind.trim() == "blob")
+}
+
+/// With `--follow`, Git does not rewrite the parents to the commits of the
+/// log: the commit of a rename keeps its real parent. Link each commit
+/// whose parents are not in the log to the next commit instead.
+fn link_followed(commits: &mut [Commit]) {
+    let shown: HashSet<String> = commits.iter().map(|c| c.sha.clone()).collect();
+    let next: Vec<Option<String>> = commits
+        .iter()
+        .skip(1)
+        .map(|c| Some(c.sha.clone()))
+        .chain([None])
+        .collect();
+    for (c, next) in commits.iter_mut().zip(next) {
+        c.parents.retain(|p| shown.contains(p));
+        if c.parents.is_empty() {
+            c.parents.extend(next);
+        }
+    }
+}
+
+/// The path of the followed file in each commit of the log, by SHA.
+fn followed_paths(
+    repo: &Repo,
+    target: &LogTarget,
+    filter: PathFilter,
+    limit: &str,
+) -> Result<HashMap<String, String>> {
+    let mut args = log_args(target, filter, "--format=%x1e%H", limit);
+    args.insert(1, "--name-only");
+    let out = repo.git(&args)?;
+    Ok(out
+        .split('\x1e')
+        .filter_map(|rec| {
+            let mut lines = rec.lines().filter(|l| !l.is_empty());
+            let sha = lines.next()?;
+            Some((sha.to_string(), lines.next()?.to_string()))
         })
         .collect())
 }
@@ -298,10 +377,10 @@ pub fn log(repo: &Repo, target: &LogTarget, paths: &[String]) -> Result<Vec<Comm
 pub fn messages(
     repo: &Repo,
     target: &LogTarget,
-    paths: &[String],
+    filter: PathFilter,
 ) -> Result<HashMap<String, (String, String)>> {
     let limit = format!("-n{LOG_LIMIT}");
-    let args = log_args(target, paths, "--format=%H%x1f%ae%x1f%B%x1e", &limit);
+    let args = log_args(target, filter, "--format=%H%x1f%ae%x1f%B%x1e", &limit);
     let out = match repo.git(&args) {
         Ok(out) => out,
         Err(e) if e.to_string().contains("does not have any commits") => return Ok(HashMap::new()),
@@ -2343,7 +2422,7 @@ mod tests {
         // Pick f3 then f1 as the UI orders them: oldest first.
         cherry_pick(r, &[f1.clone(), f3.clone()], false).unwrap();
         assert_eq!(head(r).branch.as_deref(), Some("main"));
-        let subjects: Vec<String> = log(r, &LogTarget::Head, &[])
+        let subjects: Vec<String> = log(r, &LogTarget::Head, PathFilter::default())
             .unwrap()
             .into_iter()
             .map(|c| c.subject)
@@ -2364,15 +2443,46 @@ mod tests {
         commit_file(r, "b.txt", "one", "add b");
         let c = commit_file(r, "a.txt", "two", "change a\n\nWith a body.");
 
-        let only_a = log(r, &LogTarget::Head, &["a.txt".into()]).unwrap();
+        let paths = ["a.txt".to_string()];
+        let filter = PathFilter {
+            paths: &paths,
+            follow: false,
+        };
+        let only_a = log(r, &LogTarget::Head, filter).unwrap();
         let shas: Vec<&str> = only_a.iter().map(|c| c.sha.as_str()).collect();
         assert_eq!(shas, [c.as_str(), a.as_str()]);
         assert_eq!(only_a[0].parents, [a], "the parent skips b");
 
-        let m = messages(r, &LogTarget::Head, &[]).unwrap();
+        let m = messages(r, &LogTarget::Head, PathFilter::default()).unwrap();
         assert_eq!(m.len(), 3);
         assert_eq!(m[&c].0, "test@example.com");
         assert!(m[&c].1.contains("With a body."));
+    }
+
+    #[test]
+    fn log_of_a_file_follows_its_renames() {
+        let t = temp_repo("follow");
+        let r = &t.0;
+        let a = commit_file(r, "a.txt", "one\ntwo\nthree", "add a");
+        commit_file(r, "b.txt", "other", "add b");
+        r.git(&["mv", "a.txt", "c.txt"]).unwrap();
+        r.git(&["commit", "-q", "-m", "rename a"]).unwrap();
+        let c = commit_file(r, "c.txt", "four", "change c");
+
+        let paths = ["c.txt".to_string()];
+        let mut filter = PathFilter {
+            paths: &paths,
+            follow: false,
+        };
+        assert_eq!(log(r, &LogTarget::Head, filter).unwrap().len(), 2);
+        filter.follow = true;
+        let list = log(r, &LogTarget::Head, filter).unwrap();
+        let subjects: Vec<&str> = list.iter().map(|c| c.subject.as_str()).collect();
+        assert_eq!(subjects, ["change c", "rename a", "add a"]);
+        assert_eq!(list[0].sha, c);
+        assert_eq!(list[1].parents, [a], "the rename links to the next commit");
+        let files: Vec<Option<&str>> = list.iter().map(|c| c.path.as_deref()).collect();
+        assert_eq!(files, [Some("c.txt"), Some("c.txt"), Some("a.txt")]);
     }
 
     #[test]
@@ -2709,7 +2819,7 @@ mod tests {
     }
 
     fn subjects(r: &Repo) -> Vec<String> {
-        log(r, &LogTarget::Head, &[])
+        log(r, &LogTarget::Head, PathFilter::default())
             .unwrap()
             .into_iter()
             .map(|c| c.subject)
