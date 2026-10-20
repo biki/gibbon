@@ -21,7 +21,7 @@ use similar::{Algorithm, DiffOp};
 use crate::git::{self, DiffLine, FileDiff, LineKind, Repo};
 
 /// Larger files get their colors from the lines of their hunks only.
-const MAX_FILE_BYTES: u64 = 2_000_000;
+pub const MAX_FILE_BYTES: u64 = 2_000_000;
 
 pub type Spans = Vec<(Range<usize>, HighlightStyle)>;
 /// Changed byte ranges of the old line and of the new line.

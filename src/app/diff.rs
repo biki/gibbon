@@ -11,6 +11,7 @@ use gpui_kit::component::scroll::{Scrollbar, ScrollbarHandle, ScrollbarMode};
 use crate::git::{DiffLine, FileChange, LineKind, PatchOp};
 use crate::highlight::DiffStyles;
 
+use super::blame::{BLAME_W, BlameData, BlameState};
 use super::*;
 
 /// Diff text size and row height, from the settings. `uniform_list` gives
@@ -52,7 +53,7 @@ pub(super) enum DiffFile {
 
 impl DiffFile {
     /// Changes when the diff changes: a reload makes a new one.
-    fn content_id(&self) -> usize {
+    pub(super) fn content_id(&self) -> usize {
         match self {
             DiffFile::Own(file) => Rc::as_ptr(file) as usize,
             DiffFile::Of(detail, ix) => Rc::as_ptr(detail) as usize + ix,
@@ -273,6 +274,8 @@ struct ScrollState {
     /// Height of all rows.
     rows_h: Cell<Pixels>,
     split: Cell<bool>,
+    /// The rows have the commits of a blame beside the lines.
+    blame: Cell<bool>,
     /// The list has room below the rows for the horizontal scrollbar.
     room_below: Cell<bool>,
     /// The source and the path of the shown file: another file starts at
@@ -291,7 +294,7 @@ struct ScrollState {
 impl DiffScroll {
     /// `source` is what the file belongs to, such as a commit: the same path
     /// in another commit is another file.
-    fn set_file(&self, source: &str, path: &str, text_w: Pixels, split: bool) {
+    fn set_file(&self, source: &str, path: &str, text_w: Pixels, split: bool, blame: bool) {
         let s = &self.0;
         let shown = s.file.borrow().0 == source && s.file.borrow().1 == path;
         if !shown {
@@ -303,6 +306,7 @@ impl DiffScroll {
         }
         s.text_w.set(text_w);
         s.split.set(split);
+        s.blame.set(blame);
     }
 
     /// The width that lines wrap at: the code column, clear of the vertical
@@ -377,6 +381,8 @@ impl DiffScroll {
     fn code_w(&self, view_w: Pixels) -> Pixels {
         if self.0.split.get() {
             (view_w - px(1.)) / 2. - px(SPLIT_NUM_W + SIGN_W)
+        } else if self.0.blame.get() {
+            view_w - px(BLAME_W + NUM_W + SIGN_W)
         } else {
             view_w - px(2. * NUM_W + SIGN_W)
         }
@@ -476,7 +482,7 @@ impl GitApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let sha = |d: &Option<Rc<CommitDetail>>| d.as_ref().map(|d| d.sha.clone());
-        let (file, styles, ctx, id, source) = match self.view {
+        let (file, styles, ctx, id, source, extra) = match self.view {
             View::History => (
                 self.detail
                     .clone()
@@ -488,6 +494,7 @@ impl GitApp {
                 DiffCtx::Commit,
                 "commit-diff",
                 sha(&self.detail),
+                None,
             ),
             View::Stash(_) => (
                 self.stash_detail
@@ -500,6 +507,7 @@ impl GitApp {
                 DiffCtx::Commit,
                 "stash-diff",
                 sha(&self.stash_detail),
+                None,
             ),
             View::Changes => {
                 let staged = matches!(self.change_sel, Some((_, true)));
@@ -513,6 +521,7 @@ impl GitApp {
                     },
                     "change-diff",
                     Some(staged.to_string()),
+                    None,
                 )
             }
             View::Review => {
@@ -528,25 +537,18 @@ impl GitApp {
                 // Each load of the review is a new diff: the branch is the
                 // source, so a reload keeps the place.
                 let source = ui.map(|r| format!("{}...{}", r.base, r.target));
-                return self.render_diff(
-                    file,
-                    styles,
-                    DiffCtx::Commit,
-                    "review-diff",
-                    source.unwrap_or_default(),
-                    viewed,
-                    memo,
-                    cx,
-                );
+                (file, styles, DiffCtx::Commit, "review-diff", source, viewed)
             }
             View::Rebase | View::Activity | View::Agents => return div().into_any_element(),
         };
         let source = source.unwrap_or_default();
-        self.render_diff(file, styles, ctx, id, source, None, memo, cx)
+        let blame = file.as_ref().and_then(|f| self.shown_blame(f, cx));
+        self.render_diff(file, styles, ctx, id, source, extra, blame, memo, cx)
     }
 
     /// `source` is what the file belongs to (see `DiffScroll::set_file`).
-    /// `extra` goes in the header, before the view switch.
+    /// `extra` goes in the header, before the view switch. With `blame`, the
+    /// body shows the blame of the file in the place of its diff.
     #[allow(clippy::too_many_arguments)]
     fn render_diff(
         &mut self,
@@ -556,6 +558,7 @@ impl GitApp {
         id: &'static str,
         source: String,
         extra: Option<AnyElement>,
+        blame: Option<BlameState>,
         memo: &mut Memo,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -587,6 +590,7 @@ impl GitApp {
         let accent = t.colors.primary;
         let history = self.shows_history_of(&file.path);
         let history_path = file.path.clone();
+        let blaming = blame.is_some();
         let header = h_flex()
             .flex_none()
             .h(px(36.))
@@ -638,8 +642,26 @@ impl GitApp {
                         this.show_file_history(&history_path, window, cx)
                     })),
             )
+            .when(blame::blameable(&file), |d| {
+                d.child(
+                    button("diff-blame")
+                        .ghost()
+                        .small()
+                        .icon(
+                            Icon::new(IconName::UserRoundPen)
+                                .when(blaming, |i| i.text_color(accent)),
+                        )
+                        .selected(blaming)
+                        .tooltip(if blaming {
+                            "Show the diff  ⌘B"
+                        } else {
+                            "Blame: who changed each line last  ⌘B"
+                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_blame(cx))),
+                )
+            })
             .when_some(extra, |d, e| d.child(div().ml_2().child(e)))
-            .when(image::is_svg(&file), |d| {
+            .when(!blaming && image::is_svg(&file), |d| {
                 d.child(
                     segmented(
                         "svg-view",
@@ -651,7 +673,7 @@ impl GitApp {
                     .ml_2(),
                 )
             })
-            .when(markdown::is_markdown(&file), |d| {
+            .when(!blaming && markdown::is_markdown(&file), |d| {
                 d.child(
                     segmented(
                         "markdown-view",
@@ -665,7 +687,7 @@ impl GitApp {
                     .ml_2(),
                 )
             })
-            .when(text_diff, |d| {
+            .when(text_diff || blaming, |d| {
                 d.child(
                     button("diff-wrap")
                         .ghost()
@@ -683,17 +705,21 @@ impl GitApp {
                         }),
                 )
             })
-            .child(
-                segmented(
-                    "diff-mode",
-                    &[("Unified", DiffMode::Unified), ("Split", DiffMode::Split)],
-                    mode,
-                    |m, _, cx| crate::settings::update(cx, |s| s.split_diff = m == DiffMode::Split),
-                    cx,
+            .when(!blaming, |d| {
+                d.child(
+                    segmented(
+                        "diff-mode",
+                        &[("Unified", DiffMode::Unified), ("Split", DiffMode::Split)],
+                        mode,
+                        |m, _, cx| {
+                            crate::settings::update(cx, |s| s.split_diff = m == DiffMode::Split)
+                        },
+                        cx,
+                    )
+                    .ml_2(),
                 )
-                .ml_2(),
-            );
-        let note = |text: &'static str| {
+            });
+        let note = |text: SharedString| {
             div()
                 .flex_1()
                 .flex()
@@ -707,15 +733,42 @@ impl GitApp {
         let partial = ctx != DiffCtx::Commit
             && git::supports_partial(&file)
             && picture.is_none()
-            && !rendered;
-        let body = if let Some(format) = picture {
+            && !rendered
+            && !blaming;
+        // A blame shows its lines in the place of the diff, in one column.
+        let (blamed, blame_note): (_, Option<SharedString>) = match blame {
+            Some(BlameState::Ready(d)) => (Some(d), None),
+            Some(BlameState::Loading) => (None, Some("Loading blame…".into())),
+            Some(BlameState::Failed(e)) => (None, Some(e.into())),
+            None => (None, None),
+        };
+        let (file, styles, mode, source) = match &blamed {
+            Some(d) => (
+                DiffFile::Own(d.file.clone()),
+                Some(d.styles.clone()),
+                DiffMode::Unified,
+                format!("blame:{source}"),
+            ),
+            None => (file, styles, mode, source),
+        };
+        let own = self.blame_own().map(str::to_string);
+        let body = if let Some(text) = blame_note {
+            note(text).into_any_element()
+        } else if blamed.is_none()
+            && let Some(format) = picture
+        {
             self.render_image_diff(&file, format, ctx, cx)
-        } else if rendered {
+        } else if blamed.is_none() && rendered {
             self.render_markdown_diff(&file, ctx, &source, cx)
         } else if file.binary {
-            note("Binary file, no text diff.").into_any_element()
+            note("Binary file, no text diff.".into()).into_any_element()
         } else if file.lines.is_empty() {
-            note("No content changes.").into_any_element()
+            note(if blamed.is_some() {
+                "The file is empty.".into()
+            } else {
+                "No content changes.".into()
+            })
+            .into_any_element()
         } else {
             let layout = keep(memo, || DiffLayout::new(&file, mode));
             let scroll = self.diff_scroll.entry(id).or_default().clone();
@@ -738,7 +791,13 @@ impl GitApp {
             } else {
                 advance * layout.cols as f32
             };
-            scroll.set_file(&source, &file.path, text_w, mode == DiffMode::Split);
+            scroll.set_file(
+                &source,
+                &file.path,
+                text_w,
+                mode == DiffMode::Split,
+                blamed.is_some(),
+            );
             let wraps = wrap.then(|| {
                 let width = scroll.wrap_w();
                 let key = WrapKey {
@@ -772,6 +831,26 @@ impl GitApp {
                 })
             });
             scroll.show_wraps(wraps.clone(), px(line_h));
+            // A line of a commit that a blamed line led to.
+            if let Some((_, _, no)) = self.pending_line.take_if(|(sha, path, _)| {
+                id == "commit-diff" && *sha == source && *path == file.path
+            }) && let Some(i) = file
+                .lines
+                .iter()
+                .position(|l| l.new_no == Some(no) && l.kind != LineKind::Hunk)
+            {
+                let row = match mode {
+                    DiffMode::Unified => i,
+                    DiffMode::Split => layout
+                        .rows
+                        .iter()
+                        .position(|r| matches!(r, SplitRow::Pair(_, Some(j)) if *j == i))
+                        .unwrap_or(0),
+                };
+                let row = wraps.as_ref().map_or(row, |w| w.first[row]);
+                scroll.0.list.scroll_to_item(row, ScrollStrategy::Center);
+                self.flash_line = Some((file_key(&file), i, std::time::Instant::now()));
+            }
             let n = wraps.as_ref().map_or(n, |w| w.rows.len());
             scroll.0.rows_h.set(px(line_h) * n as f32);
             let (_, room_below) = scroll.bars();
@@ -803,6 +882,9 @@ impl GitApp {
                                 None => (at, Cut::Scroll(x)),
                             };
                             let st = st.as_deref();
+                            if let Some(d) = &blamed {
+                                return this.blame_row(d, own.as_deref(), st, row, cut, cx);
+                            }
                             match mode {
                                 DiffMode::Split => {
                                     let r = layout.rows[row];
@@ -1016,12 +1098,16 @@ impl GitApp {
                 .text_color(muted.opacity(0.7))
                 .child(n.map(|n| n.to_string()).unwrap_or_default())
         };
+        let flash = self.flash_of(file, i);
         h_flex()
             .h(px(line_h))
             .w_full()
             .bg(bg)
             .font_family(crate::theme::mono_font(cx))
             .text_size(px(size))
+            .when_some(flash, |d, at| {
+                d.child(changes::flash_fill(at, t.colors.primary, px(0.)))
+            })
             .child(
                 h_flex()
                     .id(("gutter", cut.id(i)))
@@ -1128,12 +1214,17 @@ impl GitApp {
         };
         let l = half(left, true, cx);
         let r = half(right, false, cx);
+        let flash = right.and_then(|i| self.flash_of(file, i));
+        let accent = cx.theme().colors.primary;
         h_flex()
             .id(("split", cut.id(ix)))
             .h(px(line_h))
             .w_full()
             .font_family(crate::theme::mono_font(cx))
             .text_size(px(size))
+            .when_some(flash, |d, at| {
+                d.child(changes::flash_fill(at, accent, px(0.)))
+            })
             .child(l)
             .child(div().w(px(1.)).h_full().bg(border))
             .child(r)
@@ -1161,6 +1252,141 @@ impl GitApp {
         self.line_anchor = Some(i);
         cx.notify();
     }
+
+    /// When line `i` of `file` flashes: after a jump from a blamed line.
+    fn flash_of(&self, file: &FileDiff, i: usize) -> Option<std::time::Instant> {
+        self.flash_line
+            .filter(|&(key, line, at)| {
+                key == file_key(file) && line == i && at.elapsed() < changes::FLASH
+            })
+            .map(|(.., at)| at)
+    }
+
+    /// Line `i` of a blame: the commit that last changed it, then the line.
+    /// The first row of a run of lines of one commit names the commit, and
+    /// a stripe shows how new the commit is. The lines of `own`, and those
+    /// that are not committed, have the color of added lines.
+    fn blame_row(
+        &self,
+        d: &Rc<BlameData>,
+        own: Option<&str>,
+        styles: Option<&DiffStyles>,
+        i: usize,
+        cut: Cut,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = cx.theme();
+        let muted = t.colors.muted_foreground;
+        let (Some(line), Some(&(ix, _))) = (d.file.lines.get(i), d.blame.lines.get(i)) else {
+            return div().into_any_element();
+        };
+        let commit = &d.blame.commits[ix];
+        let committed = commit.committed();
+        let first = cut.first() && (i == 0 || d.blame.lines[i - 1].0 != ix);
+        let new = !committed || own == Some(commit.sha.as_str());
+        let kind = if new {
+            LineKind::Add
+        } else {
+            LineKind::Context
+        };
+        let (bg, gutter_bg) = line_colors(kind, false, cx);
+        let (size, line_h) = metrics(cx);
+        let stripe = t.colors.primary.opacity(0.2 + 0.8 * d.heat[ix]);
+        let mut gutter = h_flex()
+            .id(("blame", cut.id(i)))
+            .relative()
+            .w(px(BLAME_W))
+            .h_full()
+            .flex_none()
+            .pl(px(12.))
+            .pr_2()
+            .gap_1p5()
+            .bg(gutter_bg)
+            .font_family(crate::theme::ui_font(cx))
+            .text_size(px((size - 1.).max(10.)))
+            .text_color(muted)
+            .when(first && i > 0, |d| {
+                d.border_t_1().border_color(t.colors.border)
+            })
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .bottom_0()
+                    .w(px(3.))
+                    .bg(stripe),
+            );
+        if committed {
+            let tip = Rc::new(vec![
+                commit.summary.clone(),
+                format!("{} · {}", commit.author, fmt_full_time(commit.time)),
+                format!("{} · Click to show the commit", &commit.sha[..7]),
+            ]);
+            let data = d.clone();
+            gutter = gutter
+                .cursor_pointer()
+                .child(hover_fill(t.colors.list_hover, px(0.)))
+                .tooltip(pulls::lines_tooltip(tip))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| this.show_blamed(&data, i, cx)),
+                )
+                .when(first, |d| {
+                    d.child(history::avatar(&commit.author, 14.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(t.colors.foreground.opacity(0.85))
+                                .child(commit.summary.clone()),
+                        )
+                        .child(div().flex_none().child(fmt_age(commit.time)))
+                });
+        } else if first {
+            gutter = gutter.child(
+                div()
+                    .flex_1()
+                    .truncate()
+                    .italic()
+                    .child("Not committed yet"),
+            );
+        }
+        let flash = self.flash_of(&d.file, i);
+        h_flex()
+            .h(px(line_h))
+            .w_full()
+            .bg(bg)
+            .font_family(crate::theme::mono_font(cx))
+            .text_size(px(size))
+            .when_some(flash, |d, at| {
+                d.child(changes::flash_fill(at, t.colors.primary, px(0.)))
+            })
+            .child(gutter)
+            .child(
+                div()
+                    .w(px(NUM_W))
+                    .flex_none()
+                    .pr_2()
+                    .text_right()
+                    .text_color(muted.opacity(0.7))
+                    .child(
+                        line.new_no
+                            .filter(|_| cut.first())
+                            .map(|n| n.to_string())
+                            .unwrap_or_default(),
+                    ),
+            )
+            .child(sign(LineKind::Context, false, cx))
+            .child(code(line, i, styles, cut, cx))
+            .into_any_element()
+    }
+}
+
+/// Which file a line of `flash_line` is in: the address of its diff.
+pub(super) fn file_key(file: &FileDiff) -> usize {
+    std::ptr::from_ref(file) as usize
 }
 
 fn more_row(cx: &App) -> AnyElement {

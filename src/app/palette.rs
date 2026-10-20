@@ -155,6 +155,7 @@ fn group(section: &Section, has_repo: bool) -> CommandGroup {
                     action("Show Agents", IconName::Bot, ShowAgents),
                     action("Search History", IconName::Search, SearchHistory),
                     action("Toggle Word Wrap", IconName::TextWrap, ToggleWordWrap),
+                    action("Toggle Blame", IconName::UserRoundPen, ToggleBlame),
                     action("Refresh", IconName::RotateCw, Refresh),
                 ]);
             }

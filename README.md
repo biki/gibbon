@@ -96,6 +96,16 @@ palette and on the welcome screen.
 - Long lines scroll sideways, or wrap: the wrap button beside
   **Unified** / **Split**, **Toggle Word Wrap** in the command palette, or
   View ▸ **Word Wrap in Diffs**.
+- **Blame** (<kbd>⌘</kbd><kbd>B</kbd>, or the pen button above a diff)
+  shows the whole file in the place of its diff, with the commit that last
+  changed each line: its subject, its author and its age. A stripe beside the
+  commit is brighter for newer commits. The lines of the shown commit, and
+  the lines that are not committed yet, are green.
+  - The blame is of the version that the view shows: the commit, the stash,
+    the staged file, the file on disk, or the branch under review.
+  - Click a commit beside a line to show that commit in History, at that
+    line of its diff. Blame turns off there, so you see the change. Press
+    <kbd>⌘</kbd><kbd>B</kbd> again to blame the file before that change.
 - Image files (PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, SVG) show as pictures:
   the old one beside the new one, each with its size in pixels and in bytes.
   An SVG file has a **Picture** / **Text** switch for its text diff.
@@ -413,6 +423,7 @@ keychain has one, then with the *Gibbon Release* certificate of the releases
 | Fetch / Pull / Push | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>F</kbd> / <kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd> / <kbd>⌘</kbd><kbd>P</kbd> |
 | Previous / next commit | <kbd>↑</kbd> / <kbd>↓</kbd> |
 | Search history | <kbd>⌘</kbd><kbd>F</kbd> |
+| Blame | <kbd>⌘</kbd><kbd>B</kbd> |
 
 ## Where your data lives
 
@@ -479,6 +490,7 @@ Environment variables for automated UI checks:
 | `GIBBON_REVIEW=<branch or ref>` | Review that branch against the base branch |
 | `GIBBON_DIALOG=new-branch\|stash\|palette\|settings\|restore\|cleanup\|clone` | Open that dialog (restore: for the newest move that dropped commits) |
 | `GIBBON_SEARCH=<query>` | Search the history (see History search) |
+| `GIBBON_BLAME=1` | Show the blame of the shown file in the place of its diff |
 | `GIBBON_INSPECTOR=1` | Open the inspector (debug builds) |
 | `GIBBON_NO_ACTIVATE=1` | Open the window without taking focus (the dev loop sets it) |
 | `GIBBON_RELEASES=<url>` | Read the latest release from this URL, in the JSON of the GitHub API (a `file://` URL works). Update checks then run also with `GIBBON_BACKGROUND=1` |

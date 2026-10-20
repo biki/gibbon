@@ -30,7 +30,8 @@ use crate::highlight::{self, DiffStyles};
 use crate::{
     CleanUpBranches, CloneRepo, CommitChanges, Fetch, NewBranch, OpenRepo, OpenSettings, Pull,
     Push, Refresh, SearchHistory, SelectNext, SelectPrev, ShowActivity, ShowAgents,
-    ShowAllBranches, ShowChanges, ShowHistory, StashChanges, TogglePalette, ToggleWordWrap,
+    ShowAllBranches, ShowChanges, ShowHistory, StashChanges, ToggleBlame, TogglePalette,
+    ToggleWordWrap,
 };
 use files::FileRow;
 use hover::{Off as _, button, checkbox, hover_fill};
@@ -120,6 +121,7 @@ const SEARCH_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 
 mod activity;
 mod agents;
+mod blame;
 mod branches;
 mod changes;
 mod cleanup;
@@ -275,6 +277,20 @@ pub struct GitApp {
     image: image::ImagePreview,
     /// The rendered documents of the shown Markdown file, in any view.
     markdown: markdown::MarkdownPreview,
+    /// The diff pane shows who last changed each line of the file, in place
+    /// of its diff (see `blame`).
+    blame_on: bool,
+    blame: Option<blame::BlameUi>,
+    blame_epoch: u64,
+    /// A commit to select once the log loads, from a blamed line: a toast
+    /// tells when the log does not have it.
+    jump: Option<String>,
+    /// The file that the next commit shows first.
+    pending_path: Option<String>,
+    /// A line to scroll to once its commit shows: (commit, path, line).
+    pending_line: Option<(String, String, u32)>,
+    /// A line of a diff that flashes: (`diff::file_key`, line, start).
+    flash_line: Option<(usize, usize, Instant)>,
     message: Entity<TextareaState>,
     filter: Entity<InputState>,
     /// Enter-to-submit for the open text dialog.
@@ -349,6 +365,7 @@ impl GitApp {
                 this.detail_styles = FileStyles::default();
                 this.stash_styles = FileStyles::default();
                 this.review_styles = FileStyles::default();
+                this.blame = None;
                 this.highlight_shown(cx);
                 this.load_change_diff(cx);
             }),
@@ -428,6 +445,13 @@ impl GitApp {
             line_anchor: None,
             image: image::ImagePreview::default(),
             markdown: markdown::MarkdownPreview::default(),
+            blame_on: false,
+            blame: None,
+            blame_epoch: 0,
+            jump: None,
+            pending_path: None,
+            pending_line: None,
+            flash_line: None,
             message,
             filter,
             prompt_sub: None,
@@ -914,6 +938,11 @@ impl GitApp {
                         let ix = keep
                             .and_then(|sha| commits.iter().position(|c| c.sha == sha))
                             .or((!commits.is_empty()).then_some(0));
+                        if let Some(sha) = this.jump.take()
+                            && !commits.iter().any(|c| c.sha == sha)
+                        {
+                            this.missed_jump(&sha, cx);
+                        }
                         this.commits = Rc::new(commits);
                         this.graph = Rc::new(graph);
                         this.picks = Rc::new(picks);
@@ -1009,10 +1038,15 @@ impl GitApp {
             self.detail = None;
             return;
         };
-        if self.detail.as_ref().is_some_and(|d| d.sha == commit.sha) {
+        if let Some(d) = self.detail.clone().filter(|d| d.sha == commit.sha) {
+            if let Some(ix) = self.pending_path.take().and_then(|p| file_at(&d.files, &p)) {
+                self.detail_file = ix;
+                self.highlight_shown(cx);
+            }
             return;
         }
         // A search for a file shows that file, by its path in the commit.
+        let wanted = self.pending_path.take();
         let searched = commit
             .path
             .clone()
@@ -1030,8 +1064,10 @@ impl GitApp {
                 .background_executor()
                 .spawn(async move {
                     let d = git::commit_detail(&repo, &sha)?;
-                    let ix = pending
-                        .filter(|&i| i < d.files.len())
+                    let ix = wanted
+                        .as_deref()
+                        .and_then(|p| file_at(&d.files, p))
+                        .or_else(|| pending.filter(|&i| i < d.files.len()))
                         .or_else(|| file_at(&d.files, searched.as_deref()?))
                         .or_else(|| shown(&d.files))
                         .unwrap_or(0);
@@ -1523,7 +1559,7 @@ impl GitApp {
     /// `GIBBON_FILE=<path>` (a changed file), `GIBBON_DIFF=split`,
     /// `GIBBON_REBASE=<sha>`, `GIBBON_STASH=<n>`, `GIBBON_REVIEW=<branch>`,
     /// `GIBBON_DIALOG=new-branch|stash|palette|settings|restore|cleanup`,
-    /// `GIBBON_SEARCH=<query>`, `GIBBON_INSPECTOR=1`.
+    /// `GIBBON_SEARCH=<query>`, `GIBBON_BLAME=1`, `GIBBON_INSPECTOR=1`.
     pub fn apply_check_env(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let var = |k: &str| std::env::var(k).ok();
         if let Some(b) = var("GIBBON_BROWSE") {
@@ -1560,6 +1596,7 @@ impl GitApp {
             self.search.update(cx, |s, cx| s.set_value(q, window, cx));
             self.search_now(cx);
         }
+        self.blame_on = var("GIBBON_BLAME").is_some();
         self.check_dialog = var("GIBBON_DIALOG");
         self.check_inspector = var("GIBBON_INSPECTOR").is_some();
     }
@@ -2112,6 +2149,7 @@ impl Render for GitApp {
             .on_action(
                 cx.listener(|this, _: &SearchHistory, window, cx| this.focus_search(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &ToggleBlame, _, cx| this.toggle_blame(cx)))
             .on_action(cx.listener(|this, _: &Fetch, _, cx| this.fetch(cx)))
             .on_action(cx.listener(|this, _: &Pull, _, cx| this.pull(cx)))
             .on_action(cx.listener(|this, _: &Push, _, cx| this.push(cx)))

@@ -1026,6 +1026,147 @@ pub fn branch_diff(
 }
 
 // ---------------------------------------------------------------------------
+// Blame
+
+/// The commit that last changed some lines of a blamed file.
+#[derive(Clone, Debug, Default)]
+pub struct BlameCommit {
+    pub sha: String,
+    pub author: String,
+    pub time: i64,
+    pub summary: String,
+    /// The path of the file in this commit: Git follows renames.
+    pub path: String,
+}
+
+impl BlameCommit {
+    /// Lines that are not committed yet have the SHA of zeros.
+    pub fn committed(&self) -> bool {
+        !self.sha.bytes().all(|b| b == b'0')
+    }
+}
+
+/// Who last changed each line of a file.
+#[derive(Clone, Debug, Default)]
+pub struct Blame {
+    pub commits: Vec<BlameCommit>,
+    /// For each line of the file: its commit, an index into `commits`, and
+    /// the number of the line in that commit.
+    pub lines: Vec<(usize, u32)>,
+    /// The text of each line, without its line end.
+    pub text: Vec<String>,
+}
+
+impl Blame {
+    /// The file as a diff of unchanged lines, for the diff view: line `i`
+    /// of the diff is line `i + 1` of the file.
+    pub fn as_diff(&self, path: &str) -> FileDiff {
+        FileDiff {
+            header: vec![],
+            path: path.to_string(),
+            old_path: None,
+            change: FileChange::Modified,
+            binary: false,
+            additions: 0,
+            deletions: 0,
+            lines: self
+                .text
+                .iter()
+                .enumerate()
+                .map(|(i, text)| DiffLine {
+                    kind: LineKind::Context,
+                    old_no: None,
+                    new_no: Some(i as u32 + 1),
+                    // As `parse_patch` shows a tab.
+                    text: text.replace('\t', "    "),
+                })
+                .collect(),
+            truncated: false,
+        }
+    }
+}
+
+/// The version of a file to blame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BlameOf {
+    /// The file in a commit or a ref.
+    Commit(String),
+    /// The file on disk in this folder of the repository.
+    Worktree(PathBuf),
+    /// The staged file.
+    Index,
+}
+
+pub fn blame(repo: &Repo, of: &BlameOf, path: &str) -> Result<Blame> {
+    let out = match of {
+        BlameOf::Commit(rev) => repo.git(&["blame", "--porcelain", rev.as_str(), "--", path]),
+        BlameOf::Worktree(dir) => run_in(dir, &["blame", "--porcelain", "--", path]),
+        BlameOf::Index => {
+            let staged = repo.git(&["show", &format!(":{path}")])?;
+            run_with_stdin(
+                &repo.root,
+                &["blame", "--porcelain", "--contents", "-", "--", path],
+                &staged,
+            )
+        }
+    };
+    match out {
+        Ok(out) => Ok(parse_blame(&out)),
+        Err(e) if e.to_string().contains("no such path") => {
+            bail!("The file is not committed yet.")
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Parse `git blame --porcelain`: a header line per line of the file,
+/// `<sha> <line in commit> <line in file> [<lines in group>]`, then the
+/// details of the commit the first time it shows, then the line after a
+/// tab.
+fn parse_blame(out: &str) -> Blame {
+    let mut blame = Blame::default();
+    let mut by_sha: HashMap<String, usize> = HashMap::new();
+    let mut current: Option<(usize, u32)> = None;
+    for line in out.split('\n') {
+        if let Some(text) = line.strip_prefix('\t') {
+            if let Some(at) = current.take() {
+                blame.lines.push(at);
+                blame
+                    .text
+                    .push(text.strip_suffix('\r').unwrap_or(text).to_string());
+            }
+            continue;
+        }
+        let Some((ix, _)) = current else {
+            let mut words = line.split(' ');
+            let sha = words.next().unwrap_or_default();
+            if sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+                let no = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                let ix = *by_sha.entry(sha.to_string()).or_insert_with(|| {
+                    blame.commits.push(BlameCommit {
+                        sha: sha.to_string(),
+                        ..Default::default()
+                    });
+                    blame.commits.len() - 1
+                });
+                current = Some((ix, no));
+            }
+            continue;
+        };
+        let c = &mut blame.commits[ix];
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+        match key {
+            "author" => c.author = value.to_string(),
+            "author-time" => c.time = value.parse().unwrap_or(0),
+            "summary" => c.summary = value.to_string(),
+            "filename" => c.path = value.to_string(),
+            _ => {}
+        }
+    }
+    blame
+}
+
+// ---------------------------------------------------------------------------
 // Working tree
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2457,6 +2598,41 @@ mod tests {
         assert_eq!(m.len(), 3);
         assert_eq!(m[&c].0, "test@example.com");
         assert!(m[&c].1.contains("With a body."));
+    }
+
+    #[test]
+    fn blame_of_a_commit_the_index_and_the_worktree() {
+        let t = temp_repo("blame");
+        let r = &t.0;
+        let one = commit_file(r, "a.txt", "one\n\ttwo", "add a");
+        r.git(&["mv", "a.txt", "b.txt"]).unwrap();
+        r.git(&["commit", "-q", "-m", "rename a"]).unwrap();
+        let three = commit_file(r, "b.txt", "three", "add three");
+
+        let b = blame(r, &BlameOf::Commit("HEAD".into()), "b.txt").unwrap();
+        assert_eq!(b.text, ["one", "\ttwo", "three"]);
+        assert_eq!(b.commits.len(), 2);
+        let (first, last) = (&b.commits[b.lines[0].0], &b.commits[b.lines[2].0]);
+        assert_eq!(
+            (first.sha.as_str(), first.path.as_str()),
+            (one.as_str(), "a.txt")
+        );
+        assert_eq!(first.summary, "add a");
+        assert_eq!(first.author, "Test");
+        assert_eq!((last.sha.as_str(), b.lines[2].1), (three.as_str(), 3));
+        assert_eq!(b.lines[1], (b.lines[0].0, 2), "the same commit, line 2");
+        assert_eq!(b.as_diff("b.txt").lines[1].text, "    two");
+
+        std::fs::write(r.root.join("b.txt"), "one\n\ttwo\nthree\nfour\n").unwrap();
+        let disk = blame(r, &BlameOf::Worktree(r.root.clone()), "b.txt").unwrap();
+        assert_eq!(disk.text.len(), 4);
+        assert!(!disk.commits[disk.lines[3].0].committed());
+        assert!(disk.commits[disk.lines[2].0].committed());
+        assert_eq!(blame(r, &BlameOf::Index, "b.txt").unwrap().text.len(), 3);
+
+        std::fs::write(r.root.join("new.txt"), "x\n").unwrap();
+        let err = blame(r, &BlameOf::Worktree(r.root.clone()), "new.txt").unwrap_err();
+        assert_eq!(err.to_string(), "The file is not committed yet.");
     }
 
     #[test]

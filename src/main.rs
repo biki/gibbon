@@ -48,6 +48,7 @@ actions!(
         OpenSettings,
         CheckForUpdates,
         ToggleWordWrap,
+        ToggleBlame,
         SelectPrev,
         SelectNext,
     ]
@@ -142,6 +143,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-n", NewBranch, Some("GitApp")),
         KeyBinding::new("cmd-alt-s", StashChanges, Some("GitApp")),
         KeyBinding::new("cmd-k", TogglePalette, Some("GitApp")),
+        KeyBinding::new("cmd-b", ToggleBlame, Some("GitApp")),
         KeyBinding::new("cmd-,", OpenSettings, Some("Workspace")),
         KeyBinding::new("up", SelectPrev, Some("CommitList")),
         KeyBinding::new("down", SelectNext, Some("CommitList")),
@@ -179,6 +181,7 @@ fn install_menus(cx: &mut App) {
             MenuItem::action("Search History", SearchHistory),
             MenuItem::separator(),
             MenuItem::action("Word Wrap in Diffs", ToggleWordWrap),
+            MenuItem::action("Blame", ToggleBlame),
             MenuItem::separator(),
             MenuItem::action("Refresh", Refresh),
         ]),
