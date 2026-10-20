@@ -1859,20 +1859,60 @@ pub fn fetch_refspec(repo: &Repo, remote: &str, spec: &str) -> Result<()> {
     repo.git(&["fetch", "--no-tags", remote, spec]).map(|_| ())
 }
 
+/// The remote of `branch`, else `origin`, else the first remote.
+fn remote_of(repo: &Repo, branch: Option<&str>) -> Result<String> {
+    if let Some(branch) = branch {
+        let key = format!("branch.{branch}.remote");
+        if let Ok(r) = repo.git(&["config", "--get", key.as_str()]) {
+            return Ok(r.trim().to_string());
+        }
+    }
+    let names: Vec<String> = remotes(repo)?.into_iter().map(|(n, _)| n).collect();
+    names
+        .iter()
+        .find(|n| *n == "origin")
+        .or(names.first())
+        .cloned()
+        .ok_or_else(|| anyhow!("This repository has no remote."))
+}
+
 /// Push a branch and set its upstream (to the first remote without one).
 pub fn push_branch(repo: &Repo, branch: &str) -> Result<()> {
-    let key = format!("branch.{branch}.remote");
-    let remote = match repo.git(&["config", "--get", key.as_str()]) {
-        Ok(r) => r.trim().to_string(),
-        Err(_) => remotes(repo)?
-            .into_iter()
-            .map(|(n, _)| n)
-            .find(|n| n == "origin")
-            .or_else(|| remotes(repo).ok()?.into_iter().next().map(|(n, _)| n))
-            .ok_or_else(|| anyhow!("This repository has no remote."))?,
-    };
+    let remote = remote_of(repo, Some(branch))?;
     repo.git(&["push", "-u", remote.as_str(), branch])
         .map(|_| ())
+}
+
+/// An error message for a bad or a taken tag name, or None when the name
+/// is free.
+pub fn check_tag_name(repo: &Repo, name: &str) -> Option<String> {
+    if name.trim().is_empty() {
+        return Some("Enter a tag name.".into());
+    }
+    let full = format!("refs/tags/{name}");
+    if repo.git(&["check-ref-format", full.as_str()]).is_err() {
+        return Some(format!("\"{name}\" is not a valid tag name."));
+    }
+    repo.git(&["rev-parse", "-q", "--verify", full.as_str()])
+        .is_ok()
+        .then(|| format!("The tag {name} exists already."))
+}
+
+pub fn create_tag(repo: &Repo, name: &str, sha: &str) -> Result<()> {
+    repo.git(&["tag", name, sha]).map(|_| ())
+}
+
+pub fn delete_tag(repo: &Repo, name: &str) -> Result<()> {
+    repo.git(&["tag", "-d", name]).map(|_| ())
+}
+
+/// Push a tag to the remote of the checked-out branch, else to `origin`,
+/// else to the first remote. Returns the remote.
+pub fn push_tag(repo: &Repo, name: &str, head: &HeadInfo) -> Result<String> {
+    let remote = remote_of(repo, head.branch.as_deref())?;
+    let spec = format!("refs/tags/{name}");
+    repo.git(&["push", remote.as_str(), spec.as_str()])?;
+    Ok(remote)
 }
 
 pub fn fetch(repo: &Repo) -> Result<String> {
@@ -2693,6 +2733,34 @@ mod tests {
         assert_eq!(last_message(r).unwrap(), "one and two\n\nBody.");
         assert!(status(r).unwrap().is_empty());
         assert!(amend(r, "  ").is_err());
+    }
+
+    #[test]
+    fn tags_are_made_checked_pushed_and_deleted() {
+        let t = temp_repo("tags");
+        let r = &t.0;
+        let one = commit_file(r, "a.txt", "one", "one");
+        assert!(check_tag_name(r, "v1.0").is_none());
+        assert!(check_tag_name(r, "").is_some());
+        assert!(check_tag_name(r, "bad..name").is_some());
+        create_tag(r, "v1.0", &one).unwrap();
+        assert_eq!(
+            check_tag_name(r, "v1.0").as_deref(),
+            Some("The tag v1.0 exists already.")
+        );
+
+        let remote = r.root.with_extension("remote.git");
+        let _ = std::fs::remove_dir_all(&remote);
+        run_in(&r.root, &["init", "-q", "--bare", remote.to_str().unwrap()]).unwrap();
+        r.git(&["remote", "add", "origin", remote.to_str().unwrap()])
+            .unwrap();
+        assert_eq!(push_tag(r, "v1.0", &head(r)).unwrap(), "origin");
+        let pushed = run_in(&remote, &["tag", "--list"]).unwrap();
+        let _ = std::fs::remove_dir_all(&remote);
+        assert_eq!(pushed.trim(), "v1.0");
+
+        delete_tag(r, "v1.0").unwrap();
+        assert!(check_tag_name(r, "v1.0").is_none());
     }
 
     #[test]

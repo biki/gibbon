@@ -514,11 +514,18 @@ impl GitApp {
                 } else {
                     menu
                 };
+                let (this6, tag_at) = (this.clone(), sha.clone());
                 let menu = menu
                     .item(
                         PopupMenuItem::new("New Branch Here…").on_click(move |_, window, cx| {
                             let s = (start.clone(), start[..7].to_string());
                             this2.update(cx, |app, cx| app.new_branch_dialog(Some(s), window, cx));
+                        }),
+                    )
+                    .item(
+                        PopupMenuItem::new("New Tag Here…").on_click(move |_, window, cx| {
+                            let sha = tag_at.clone();
+                            this6.update(cx, |app, cx| app.new_tag_dialog(sha, window, cx));
                         }),
                     )
                     .separator();

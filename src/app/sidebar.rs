@@ -752,6 +752,23 @@ impl GitApp {
                                     }),
                             );
                         }
+                        if menu_branch.kind == RefKind::Tag {
+                            let (this4, this5) = (this.clone(), this.clone());
+                            let (push, del) = (menu_branch.name.clone(), menu_branch.name.clone());
+                            menu = menu
+                                .item(PopupMenuItem::new("Push Tag").on_click(move |_, _, cx| {
+                                    let name = push.clone();
+                                    this4.update(cx, |app, cx| app.push_tag(name, cx));
+                                }))
+                                .item(PopupMenuItem::new("Delete Tag…").on_click(
+                                    move |_, window, cx| {
+                                        let name = del.clone();
+                                        this5.update(cx, |app, cx| {
+                                            app.delete_tag_dialog(name, window, cx)
+                                        });
+                                    },
+                                ));
+                        }
                         if menu_branch.kind == RefKind::Remote {
                             let (this4, del) = (this.clone(), menu_branch.clone());
                             menu = menu.item(PopupMenuItem::new("Delete…").on_click(

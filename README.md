@@ -312,6 +312,9 @@ worktrees, in one step.
   searches all branches.
 - Create, rename, delete and switch branches (double-click to switch).
 - Delete a remote branch on its remote: right-click it in the sidebar.
+- Tags: right-click a commit ▸ **New Tag Here…**. Right-click a tag in the
+  sidebar ▸ **Push Tag** sends it to the remote of the checked-out branch
+  (else to `origin`), and **Delete Tag…** deletes the local tag.
 - Gibbon fetches all remotes of the shown tab every 10 minutes, and when you
   switch to a tab that did not fetch in the last minute. Settings change the
   time or turn it off. Only the first error of a run of failed fetches shows.

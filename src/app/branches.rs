@@ -149,6 +149,98 @@ impl GitApp {
         );
     }
 
+    /// Ask for a name, then tag the commit `sha`.
+    pub(super) fn new_tag_dialog(
+        &mut self,
+        sha: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let short = sha[..sha.len().min(7)].to_string();
+        self.prompt(
+            "New tag",
+            format!(
+                "Tag the commit {short}. Push Tag in the menu of the tag sends it to the remote."
+            ),
+            "",
+            "Create",
+            move |this, name, cx| {
+                let name = name.trim().to_string();
+                let Some(repo) = this.repo.clone() else {
+                    return;
+                };
+                if let Some(err) = git::check_tag_name(&repo, &name) {
+                    this.toast(Some(false), err, cx);
+                    return;
+                }
+                let sha = sha.clone();
+                this.run_op(
+                    "Tagging…",
+                    Some(format!("Tagged {short} as {name}")),
+                    move |repo| git::create_tag(repo, &name, &sha).map(|_| String::new()),
+                    cx,
+                );
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// Push the tag `name` to the remote of the checked-out branch.
+    pub(super) fn push_tag(&mut self, name: String, cx: &mut Context<Self>) {
+        let head = self.head.clone();
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        self.set_busy(Some("Pushing…".into()), cx);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let n = name.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { git::push_tag(&repo, &n, &head) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.set_busy(None, cx);
+                match result {
+                    Ok(remote) => this.toast(Some(true), format!("Pushed {name} to {remote}"), cx),
+                    Err(e) => this.toast(Some(false), e.to_string(), cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Confirm, then delete the local tag `name`. Its remote tag stays.
+    pub(super) fn delete_tag_dialog(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm(
+            "Delete tag?",
+            format!("This deletes the local tag {name}. A tag on a remote stays."),
+            "Delete",
+            move |this, cx| {
+                let name = name.clone();
+                let done = format!("Deleted the tag {name}");
+                this.run_op(
+                    "Deleting…",
+                    Some(done),
+                    move |repo| git::delete_tag(repo, &name).map(|_| String::new()),
+                    cx,
+                )
+            },
+            window,
+            cx,
+        );
+    }
+
     /// Confirm, delete; if git refuses an unmerged branch, confirm again.
     pub(super) fn delete_branch_dialog(
         &mut self,
