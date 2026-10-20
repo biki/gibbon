@@ -131,6 +131,10 @@ palette and on the welcome screen.
 - Stage and unstage per file, per hunk or per line. Click the line numbers to
   select lines (<kbd>⇧</kbd>-click for a range), then **Stage lines**.
 - Discard a file, a hunk, some lines or everything. Gibbon always asks first.
+- **Amend last commit**, below the commit message, replaces the last
+  commit: an empty message box gets its message, and the staged changes go
+  into it. With no staged changes, the amend changes only the message.
+  Gibbon asks first when the upstream has the last commit already.
 - Gibbon watches the repository and refreshes by itself. A file that changed
   on disk since the last refresh flashes in the list for a moment, while the
   Gibbon window is active.

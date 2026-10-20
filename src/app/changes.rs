@@ -143,6 +143,7 @@ impl GitApp {
         let (muted, border) = (cx.theme().colors.muted_foreground, cx.theme().colors.border);
         let n = rows.len();
         let staged = self.status.iter().filter(|e| e.staged.is_some()).count();
+        let amend = self.amend.is_some();
         let list = if n == 0 {
             v_flex()
                 .flex_1()
@@ -176,15 +177,30 @@ impl GitApp {
             .border_color(border)
             .child(Textarea::new(&self.message).h(px(96.)).text_size(rems(1.)))
             .child(
+                checkbox("amend")
+                    .small()
+                    .label("Amend last commit")
+                    .tooltip("Replace the last commit: its message and the staged changes")
+                    .checked(amend)
+                    .off(self.head.sha.is_none())
+                    .on_click(
+                        cx.listener(|this, on: &bool, window, cx| this.set_amend(*on, window, cx)),
+                    ),
+            )
+            .child(
                 button("commit")
                     .primary()
                     .w_full()
-                    .off(staged == 0 || self.busy.is_some())
+                    .off(staged == 0 && !amend || self.busy.is_some())
                     .child(
                         h_flex()
                             .gap_1p5()
                             .child(Icon::new(IconName::GitCommitHorizontal).size(px(15.)))
-                            .child(format!("Commit to {}", self.head_name()))
+                            .child(if amend {
+                                "Amend Last Commit".to_string()
+                            } else {
+                                format!("Commit to {}", self.head_name())
+                            })
                             .child(div().ml_1().text_size(px(11.)).opacity(0.7).child("⌘↵")),
                     )
                     .on_click(cx.listener(|this, _, window, cx| this.commit(window, cx))),

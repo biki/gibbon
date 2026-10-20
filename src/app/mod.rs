@@ -292,6 +292,9 @@ pub struct GitApp {
     /// A line of a diff that flashes: (`diff::file_key`, line, start).
     flash_line: Option<(usize, usize, Instant)>,
     message: Entity<TextareaState>,
+    /// Amend is on: the next commit replaces the last one. Holds the
+    /// message of the last commit once it loads.
+    amend: Option<String>,
     filter: Entity<InputState>,
     /// Enter-to-submit for the open text dialog.
     prompt_sub: Option<Subscription>,
@@ -453,6 +456,7 @@ impl GitApp {
             pending_line: None,
             flash_line: None,
             message,
+            amend: None,
             filter,
             prompt_sub: None,
             check_dialog: None,
@@ -1840,39 +1844,137 @@ impl GitApp {
         );
     }
 
+    /// Commit the staged changes, or with Amend on, replace the last commit.
+    /// An amend of a commit that the upstream has asks first.
     fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(repo) = self.repo.clone() else {
-            return;
-        };
-        if self.busy.is_some() {
+        if self.repo.is_none() || self.busy.is_some() {
             return;
         }
-        if !self.status.iter().any(|e| e.staged.is_some()) {
+        let amend = self.amend.is_some();
+        if !amend && !self.status.iter().any(|e| e.staged.is_some()) {
             self.toast(None, "Stage the changes to commit first.", cx);
             return;
         }
-        let msg = self.message.read(cx).value().to_string();
-        if msg.trim().is_empty() {
+        if self.message.read(cx).value().trim().is_empty() {
             self.toast(None, "Write a commit message first.", cx);
             return;
         }
-        self.set_busy(Some("Committing…".into()), cx);
+        let upstream = self.head.upstream.clone().filter(|_| self.head.ahead == 0);
+        let Some(upstream) = upstream.filter(|_| amend) else {
+            return self.commit_now(window, cx);
+        };
+        let this = cx.entity();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let this = this.clone();
+            dialog
+                .title("Amend a pushed commit?")
+                .w(px(420.))
+                .child(div().text_size(px(13.)).child(format!(
+                    "The last commit is on {upstream} already. After the amend, a push \
+                     needs git push --force-with-lease, which Gibbon does not do."
+                )))
+                .footer(dialog_footer(
+                    "Amend".into(),
+                    ButtonVariant::Danger,
+                    move |window, cx| {
+                        this.update(cx, |app, cx| app.commit_now(window, cx));
+                    },
+                ))
+        });
+    }
+
+    fn commit_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        let msg = self.message.read(cx).value().to_string();
+        let amend = self.amend.is_some();
+        self.set_busy(
+            Some(
+                if amend {
+                    "Amending…"
+                } else {
+                    "Committing…"
+                }
+                .into(),
+            ),
+            cx,
+        );
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { git::commit(&repo, &msg) })
+                .spawn(async move {
+                    if amend {
+                        git::amend(&repo, &msg)
+                    } else {
+                        git::commit(&repo, &msg)
+                    }
+                })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.set_busy(None, cx);
                 match result {
                     Ok(_) => {
+                        this.amend = None;
                         this.message.update(cx, |m, cx| m.set_value("", window, cx));
-                        this.toast(Some(true), "Committed", cx);
+                        let done = if amend {
+                            "Amended the last commit"
+                        } else {
+                            "Committed"
+                        };
+                        this.toast(Some(true), done, cx);
                     }
                     Err(e) => this.toast(Some(false), e.to_string(), cx),
                 }
                 this.reload(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Turn Amend on or off. On, an empty message box gets the message of
+    /// the last commit. Off, a message that was not changed goes away.
+    fn set_amend(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !on {
+            if let Some(last) = self.amend.take()
+                && self.message.read(cx).value() == last
+            {
+                self.message.update(cx, |m, cx| m.set_value("", window, cx));
+            }
+            cx.notify();
+            return;
+        }
+        let Some(repo) = self.repo.clone() else {
+            return;
+        };
+        self.amend = Some(String::new());
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let last = cx
+                .background_executor()
+                .spawn(async move { git::last_message(&repo) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                // Amend went off while the message loaded.
+                if this.amend.is_none() {
+                    return;
+                }
+                match last {
+                    Ok(last) => {
+                        if this.message.read(cx).value().trim().is_empty() {
+                            let text = last.clone();
+                            this.message
+                                .update(cx, |m, cx| m.set_value(text, window, cx));
+                        }
+                        this.amend = Some(last);
+                    }
+                    Err(e) => {
+                        this.amend = None;
+                        this.toast(Some(false), e.to_string(), cx);
+                    }
+                }
                 cx.notify();
             });
         })

@@ -134,8 +134,9 @@ Next steps:
   or path (`author:`, `path:`). Next: mark the matched words in the rows.
 - **Recover dropped stashes** — idea. `git fsck --unreachable` finds stash
   commits that a `stash drop` or `stash clear` removed.
-- **Amend the last commit** — idea. An **Amend** toggle beside the commit
+- **Amend the last commit** — done. **Amend last commit** below the commit
   box loads the last message and adds the staged changes to that commit.
+  Next: a push with `--force-with-lease` after an amend of a pushed commit.
 - **Conflict view** — idea. When Git stops on a conflict, show *ours* and
   *theirs* for each conflict, with **Use ours**, **Use theirs** and **Use
   both**, then mark the file as resolved. Now Gibbon shows only

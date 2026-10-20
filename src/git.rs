@@ -519,6 +519,23 @@ pub fn reset(repo: &Repo, sha: &str, mode: ResetMode) -> Result<String> {
     repo.git(&["reset", "-q", flag, sha])
 }
 
+/// The whole message of the last commit.
+pub fn last_message(repo: &Repo) -> Result<String> {
+    Ok(repo
+        .git(&["log", "-1", "--format=%B"])?
+        .trim_end()
+        .to_string())
+}
+
+/// Replace the last commit with one that has `message` and the staged
+/// changes too.
+pub fn amend(repo: &Repo, message: &str) -> Result<String> {
+    if message.trim().is_empty() {
+        bail!("The commit message is empty.");
+    }
+    run_with_stdin(&repo.root, &["commit", "--amend", "-F", "-"], message)
+}
+
 /// An operation that stopped on a conflict and waits for the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Paused {
@@ -2661,6 +2678,21 @@ mod tests {
             (st[0].staged, st[0].unstaged),
             (None, Some(Change::Modified))
         );
+    }
+
+    #[test]
+    fn amend_the_last_commit() {
+        let t = temp_repo("amend");
+        let r = &t.0;
+        commit_file(r, "a.txt", "one", "one");
+        std::fs::write(r.root.join("a.txt"), "one\ntwo\n").unwrap();
+        stage(r, &["a.txt".into()]).unwrap();
+        assert_eq!(last_message(r).unwrap(), "one");
+        amend(r, "one and two\n\nBody.").unwrap();
+        assert_eq!(subjects(r), ["one and two"]);
+        assert_eq!(last_message(r).unwrap(), "one and two\n\nBody.");
+        assert!(status(r).unwrap().is_empty());
+        assert!(amend(r, "  ").is_err());
     }
 
     #[test]
