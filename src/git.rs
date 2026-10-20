@@ -481,6 +481,44 @@ pub fn cherry_pick(repo: &Repo, shas: &[String], merges: bool) -> Result<String>
     repo.git(&args)
 }
 
+/// Make a commit on top of HEAD that undoes `sha`. A merge commit is
+/// undone against its first parent. The log of a path search can hide the
+/// second parent of a merge, so this asks Git.
+pub fn revert(repo: &Repo, sha: &str) -> Result<String> {
+    let second = format!("{sha}^2");
+    let merge = repo
+        .git(&["rev-parse", "-q", "--verify", second.as_str()])
+        .is_ok();
+    let mut args = vec!["revert", "--no-edit"];
+    if merge {
+        args.extend(["-m", "1"]);
+    }
+    args.push(sha);
+    repo.git(&args)
+}
+
+/// What a reset does with the changes of the commits that leave the
+/// branch, and with the uncommitted changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResetMode {
+    /// Keep them, staged.
+    Soft,
+    /// Keep them, not staged.
+    Mixed,
+    /// Throw them away.
+    Hard,
+}
+
+/// Move the checked-out branch to `sha`.
+pub fn reset(repo: &Repo, sha: &str, mode: ResetMode) -> Result<String> {
+    let flag = match mode {
+        ResetMode::Soft => "--soft",
+        ResetMode::Mixed => "--mixed",
+        ResetMode::Hard => "--hard",
+    };
+    repo.git(&["reset", "-q", flag, sha])
+}
+
 /// An operation that stopped on a conflict and waits for the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Paused {
@@ -2598,6 +2636,31 @@ mod tests {
         assert_eq!(m.len(), 3);
         assert_eq!(m[&c].0, "test@example.com");
         assert!(m[&c].1.contains("With a body."));
+    }
+
+    #[test]
+    fn revert_and_reset() {
+        let t = temp_repo("undo");
+        let r = &t.0;
+        let one = commit_file(r, "a.txt", "one", "one");
+        let two = commit_file(r, "a.txt", "two", "two");
+        revert(r, &two).unwrap();
+        assert_eq!(subjects(r)[0], "Revert \"two\"");
+        assert_eq!(
+            std::fs::read_to_string(r.root.join("a.txt")).unwrap(),
+            "one\n"
+        );
+
+        reset(r, &two, ResetMode::Hard).unwrap();
+        assert_eq!(subjects(r), ["two", "one"]);
+        reset(r, &one, ResetMode::Soft).unwrap();
+        assert_eq!(status(r).unwrap()[0].staged, Some(Change::Modified));
+        reset(r, &one, ResetMode::Mixed).unwrap();
+        let st = status(r).unwrap();
+        assert_eq!(
+            (st[0].staged, st[0].unstaged),
+            (None, Some(Change::Modified))
+        );
     }
 
     #[test]

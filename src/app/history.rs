@@ -356,6 +356,8 @@ impl GitApp {
         let subject = c.subject.clone();
         let pickable = pick == Some(PickState::Pickable);
         let on_head = self.target == LogTarget::Head;
+        // Reset to the commit that the branch is on does nothing.
+        let at_head = self.head.sha.as_ref() == Some(&c.sha);
         let this = cx.entity();
         h_flex()
             .id(("commit", ix))
@@ -461,7 +463,7 @@ impl GitApp {
                     this.click_commit(ix, e.modifiers, window, cx)
                 }),
             )
-            .context_menu(move |menu, _, _| {
+            .context_menu(move |menu, window, cx| {
                 let mut menu = menu;
                 if foreign {
                     let this = this.clone();
@@ -484,14 +486,31 @@ impl GitApp {
                 let (this2, start) = (this.clone(), sha.clone());
                 let menu = if on_head {
                     let (this3, from) = (this.clone(), sha.clone());
-                    menu.item(
-                        PopupMenuItem::new("Interactive Rebase from Here…").on_click(
-                            move |_, _, cx| {
-                                let from = from.clone();
-                                this3.update(cx, |app, cx| app.start_rebase(from, cx));
-                            },
-                        ),
-                    )
+                    let (this4, undo) = (this.clone(), sha.clone());
+                    let (this5, to) = (this.clone(), sha.clone());
+                    let menu = menu
+                        .item(
+                            PopupMenuItem::new("Interactive Rebase from Here…").on_click(
+                                move |_, _, cx| {
+                                    let from = from.clone();
+                                    this3.update(cx, |app, cx| app.start_rebase(from, cx));
+                                },
+                            ),
+                        )
+                        .item(
+                            PopupMenuItem::new("Revert Commit").on_click(move |_, _, cx| {
+                                let sha = undo.clone();
+                                this4.update(cx, |app, cx| app.revert_commit(sha, cx));
+                            }),
+                        );
+                    if at_head {
+                        menu
+                    } else {
+                        let label = format!("Reset {head_name} to Here");
+                        menu.submenu(label, window, cx, move |sub, _, _| {
+                            reset_menu(sub, &to, &this5)
+                        })
+                    }
                 } else {
                     menu
                 };
@@ -513,6 +532,61 @@ impl GitApp {
                 )
             })
             .into_any_element()
+    }
+
+    /// Undo the changes of commit `sha` with a new commit on top.
+    fn revert_commit(&mut self, sha: String, cx: &mut Context<Self>) {
+        let short = sha[..sha.len().min(7)].to_string();
+        self.run_op(
+            "Reverting…",
+            Some(format!("Reverted {short}")),
+            move |repo| git::revert(repo, &sha),
+            cx,
+        );
+    }
+
+    /// Move the checked-out branch to `sha`. Activity can move it back. A
+    /// hard reset of uncommitted changes asks first: those are lost.
+    fn reset_to(
+        &mut self,
+        sha: String,
+        mode: git::ResetMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let head = self.head_name();
+        let short = sha[..sha.len().min(7)].to_string();
+        let done = format!("Reset {head} to {short}. Activity can undo it.");
+        let run = move |this: &mut GitApp, cx: &mut Context<GitApp>| {
+            let sha = sha.clone();
+            this.run_op(
+                "Resetting…",
+                Some(done.clone()),
+                move |repo| git::reset(repo, &sha, mode),
+                cx,
+            );
+        };
+        // A hard reset keeps new files: Git does not track them.
+        let lost = self
+            .status
+            .iter()
+            .filter(|e| e.unstaged != Some(git::Change::Untracked))
+            .count();
+        if mode != git::ResetMode::Hard || lost == 0 {
+            return run(self, cx);
+        }
+        self.confirm(
+            "Discard changes?",
+            format!(
+                "This moves {head} to {short} and throws away the uncommitted changes of \
+                 {lost} file{}. Activity can bring back the commits, but not these changes.",
+                plural(lost)
+            ),
+            "Reset",
+            run,
+            window,
+            cx,
+        );
     }
 
     fn click_commit(
@@ -818,6 +892,28 @@ fn is_trailer(line: &str) -> bool {
     line.split_once(": ").is_some_and(|(key, _)| {
         key == "BREAKING CHANGE"
             || !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    })
+}
+
+/// The ways to reset the branch to `sha`, for the commit menu.
+fn reset_menu(
+    menu: gpui_kit::component::menu::PopupMenu,
+    sha: &str,
+    this: &Entity<GitApp>,
+) -> gpui_kit::component::menu::PopupMenu {
+    use git::ResetMode::*;
+    [
+        ("Keep the Changes, Staged", Soft),
+        ("Keep the Changes, Not Staged", Mixed),
+        ("Discard the Changes…", Hard),
+    ]
+    .into_iter()
+    .fold(menu, |menu, (label, mode)| {
+        let (sha, this) = (sha.to_string(), this.clone());
+        menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+            let sha = sha.clone();
+            this.update(cx, |app, cx| app.reset_to(sha, mode, window, cx));
+        }))
     })
 }
 

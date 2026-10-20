@@ -10,6 +10,7 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - File history: the commits that changed a file, also before a rename of the file
 - Blame (⌘B): the commit that last changed each line, and a click shows that commit at that line
+- Revert Commit and Reset to Here in the menu of a commit of the checked-out branch
 
 ## [0.4.0] - 2026-10-12
 

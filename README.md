@@ -83,6 +83,12 @@ palette and on the welcome screen.
   search `path:<file>`, so you can add words to it. The history of one file
   goes on before the file was renamed, and each commit shows the file first.
   Click the clock button again to show all commits.
+- Right-click a commit of the checked-out branch:
+  - **Revert Commit** makes a new commit that undoes it.
+  - **Reset main to Here** moves the branch to the commit. Keep the changes
+    of the commits that leave the branch staged or not staged, or discard
+    them. Gibbon asks first when a reset throws away uncommitted changes.
+    Activity can move the branch back.
 - Commit details: the subject, the author, the date and the commit on two
   lines, then the changed files and the diff. The message folds to one line;
   click it to show all of it. The tooltip of the author shows the committer,
