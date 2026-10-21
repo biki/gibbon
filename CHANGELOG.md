@@ -6,6 +6,8 @@ The versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-21
+
 ### Added
 
 - File history: the commits that changed a file, also before a rename of the file
@@ -94,7 +96,8 @@ The first release: a native Git client for macOS, built on GPUI.
 - Light and dark themes, five color themes, and a choice of interface and code fonts
 - Automatic updates from the GitHub releases
 
-[Unreleased]: https://github.com/biki/gibbon/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/biki/gibbon/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/biki/gibbon/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/biki/gibbon/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/biki/gibbon/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/biki/gibbon/compare/v0.2.0...v0.3.0
